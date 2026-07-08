@@ -1,0 +1,16 @@
+# Project-wide default configuration.
+#
+# These values are applied on top of ESP-IDF's built-in defaults whenever the
+# generated `sdkconfig` file does not yet exist (e.g. a fresh clone). Keep this
+# file minimal: only list settings the project deliberately depends on. Anything
+# not listed here uses the ESP-IDF default for the selected target.
+#
+# Regenerate the full sdkconfig from these defaults with:  idf.py reconfigure
+
+# Target chip: ESP32 (dual-core Xtensa LX6).
+CONFIG_IDF_TARGET="esp32"
+
+# Run FreeRTOS in SMP dual-core mode. UNICORE=n keeps both cores active:
+# core 0 (PRO_CPU) and core 1 (APP_CPU). This is what lets the hello-world
+# tasks be pinned to separate cores with xTaskCreatePinnedToCore().
+CONFIG_FREERTOS_UNICORE=n
