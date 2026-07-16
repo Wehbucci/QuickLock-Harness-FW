@@ -31,40 +31,16 @@
 /* Built-in LED on most ESP32 dev boards. */
 #define BUILTIN_LED_GPIO GPIO_NUM_2
 
-/* Each task prints "Hello world" once per second, forever. */
-static void hello_task(void *arg)
-{
-    const char *name = (const char *)arg;
-    uint32_t count = 0;
-
-    for (;;) {
-        printf("Hello world from %s running on core %d (count %" PRIu32 ")\n",
-               name, xPortGetCoreID(), count++);
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
-}
-
-// enum LED_QUEUE_INPUTS {
-//     ARM,
-//     DISARM,
-//     LOW_BATTERY,
-//     HIGH_BATTERY
-// };
-
 enum SECURITY_STATE {
-    SECURITY_ARMED,
-    SECURITY_DISARMED
+    SECURITY_DISARMED,
+    SECURITY_ARMED_QUIET,
+    SECURITY_ARMED_TIER2,
+    SECURITY_ARMED_TIER3
 };
 
 enum BATTERY_STATE {
     BATTERY_LOW,
     BATTERY_HIGH
-};
-
-enum ALARM_STATE {
-    ALARM_OFF,
-    ALARM_HALF,
-    ALARM_FULL
 };
 
 enum BLE_COMMANDS {
@@ -89,7 +65,6 @@ QueueHandle_t led_queue;
 
 /* Global Communication Enums */
 enum SECURITY_STATE security_state = SECURITY_DISARMED;  // Owned by Security Core Task
-enum ALARM_STATE alarm_state = ALARM_OFF;                // Owned by Security Core Task
 enum BATTERY_STATE battery_state = BATTERY_HIGH;         // Owned by Battery Status Task
 enum BLE_COMMANDS ble_command = BLE_NO_COMMAND;          // Owned by BLE Task
 enum BELT_STATE belt_state = BELT_UNKNOWN;               // Owned by Belt Detection Task
@@ -105,39 +80,27 @@ const uint32_t SECURITY_BLE_BIT = 1UL << 1;
 const uint32_t SECURITY_BELT_DETECTION_BIT = 1UL << 2;
 
 
-// void led_task(void *arg)
-// {
-//     enum LED_QUEUE_INPUTS battery_state = HIGH_BATTERY;
-//     enum LED_QUEUE_INPUTS arm_disarm_state = ARM;
-
-//     enum LED_QUEUE_INPUTS queue_value;
-//     while (1) {
-//         xQueueReceive(led_queue, &queue_value, portMAX_DELAY);
-//         gpio_set_level(BUILTIN_LED_GPIO, 0);  // turn builtin LED on
-//         vTaskDelay(pdMS_TO_TICKS(500));       // 500ms delay
-//         gpio_set_level(BUILTIN_LED_GPIO, 0);  // turn builtin LED off
-//     }
-// }
-
 void request_chirp()
 {
-    xTaskNotify(alarm_task_handle, CHIRP_BIT, eSetBits);
+    xTaskNotify(alarm_task_handle, ALARM_CHIRP_BIT, eSetBits);
 }
 
 void led_task(void *arg)
 {
     while (1) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        if (security_state == SECURITY_ARMED && battery_state == BATTERY_HIGH) {
+        if (security_state != SECURITY_DISARMED && battery_state == BATTERY_HIGH) {
             gpio_set_level(BUILTIN_LED_GPIO, 1);  // turn builtin LED on
-        } else if (security_state == SECURITY_ARMED && battery_state == BATTERY_LOW) {
+        } else if (security_state != SECURITY_DISARMED && battery_state == BATTERY_LOW) {
             gpio_set_level(BUILTIN_LED_GPIO, 1);  // turn builtin LED on
             // start a timer to blink on for 500ms every 1000ms
         } else if (security_state == SECURITY_DISARMED && battery_state == BATTERY_HIGH) {
             gpio_set_level(BUILTIN_LED_GPIO, 0);  // turn builtin LED off
-        } else {
+        } else if (security_state == SECURITY_DISARMED && battery_state == BATTERY_LOW) {
             gpio_set_level(BUILTIN_LED_GPIO, 1);  // turn builtin LED on
             // start a timer to blink on for 500ms every 5000ms
+        } else {
+            // LOG: Unknown LED input combination
         }
     }
 }
@@ -178,27 +141,39 @@ void alarm_task(void *arg)
         xTaskNotifyWait(0, 0xFFFFFFFF, &notification_value, portMAX_DELAY);
         chirp_requested = notification_value & ALARM_CHIRP_BIT;
 
-        if (alarm_state == ALARM_HALF) {
+        if (security_state == SECURITY_DISARMED || security_state == SECURITY_ARMED_QUIET) {
+            // TODO: drive alarm off
+        } else if (security_state == SECURITY_ARMED_TIER2) {
             // TODO: drive alarm half
-        } else if (alarm_state == ALARM_FULL) {
+        } else if (security_state == SECURITY_ARMED_TIER3) {
             // TODO: drive alarm full
         } else {
-            // TODO: drive alarm off
+            // LOG: Unknown security state
         }
 
-        if (chirp_requested && alarm_state == ALARM_OFF) {
+        if (chirp_requested && (security_state == SECURITY_DISARMED || security_state == SECURITY_ARMED_QUIET)) {
             // TODO: chirp the alarm
         }
     }
 }
 
 /* Private Security Core Functions */
-static void disarm()
+static void security_disarm()
 {
 
 }
 
-static void arm()
+static void security_arm()
+{
+
+}
+
+static void security_tier2()
+{
+
+}
+
+static void security_tier3()
 {
 
 }
@@ -225,13 +200,13 @@ void security_core_task(void *arg)
         xTaskNotifyWait(0, 0xFFFFFFFF, &notification_value, portMAX_DELAY);
 
         if (notification_value & SECURITY_BLE_BIT) {
-            if (security_state == SECURITY_ARMED) {
+            if (security_state == SECURITY_ARMED_QUIET || security_state == SECURITY_ARMED_TIER2 || security_state == SECURITY_ARMED_TIER3) {
                 switch (ble_command) {
                     case BLE_ARM:
                         break;
                     case BLE_DISARM:
                         turn_alarm_off();
-                        disarm();
+                        security_disarm();
                         break;
                     case BLE_OOR:
                         break;
@@ -242,13 +217,13 @@ void security_core_task(void *arg)
                 switch (ble_command) {
                     case BLE_ARM:
                         arm_test();
-                        arm();
+                        security_arm();
                         break;
                     case BLE_DISARM:
                         break;
                     case BLE_OOR:
                         arm_test();
-                        arm();
+                        security_arm();
                         break;
                     default:
                         // LOG: Received unknown request from BLE Task
@@ -257,7 +232,7 @@ void security_core_task(void *arg)
         }
 
         if (notification_value & SECURITY_BELT_DETECTION_BIT) {
-            if (security_state == SECURITY_ARMED) {
+            if (security_state == SECURITY_DISARMED) {
                 switch (belt_state) {
                     case BELT_OPEN:
                         break;
@@ -266,28 +241,22 @@ void security_core_task(void *arg)
                     default:
                         // LOG: Received unknown request from Belt Detection Task
                 }
-            } else if (security_state == SECURITY_DISARMED) {
+            } else if (security_state == SECURITY_ARMED_QUIET || security_state == SECURITY_ARMED_TIER2) {
                 switch (belt_state) {
                     case BELT_OPEN:
+                        security_tier3();
                         break;
                     case BELT_CLOSED:
                         break;
                     default:
                         // LOG: Received unknown request from Belt Detection Task
                 }
+            } else if (security_state == SECURITY_ARMED_TIER3) {
+                // Do nothing
             }
         }
     }
 }
-
-// void sample_task(void *arg)
-// {   
-//     enum LED_QUEUE_INPUTS send_value = ARM;
-//     while (1) {
-//         xQueueSend(led_queue, &send_value, 0);
-//         vTaskDelay(pdMS_TO_TICKS(5000));  // 5s delay
-//     }
-// }
 
 void app_main(void)
 {
