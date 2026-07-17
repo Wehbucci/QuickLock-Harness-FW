@@ -72,10 +72,8 @@ enum BELT_STATE belt_state = BELT_UNKNOWN;               // Owned by Belt Detect
 /* Battery State Consts */
 const int LOW_BATTERY_THRESHOLD = 20;
 
-/* Alarm Consts */
+/* Notification Bit Consts */
 const uint32_t ALARM_CHIRP_BIT = 1UL << 1;
-
-/* Security Core Consts */
 const uint32_t SECURITY_BLE_BIT = 1UL << 1;
 const uint32_t SECURITY_BELT_DETECTION_BIT = 1UL << 2;
 
@@ -89,6 +87,7 @@ void led_task(void *arg)
 {
     while (1) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
         if (security_state != SECURITY_DISARMED && battery_state == BATTERY_HIGH) {
             gpio_set_level(BUILTIN_LED_GPIO, 1);  // turn builtin LED on
         } else if (security_state != SECURITY_DISARMED && battery_state == BATTERY_LOW) {
