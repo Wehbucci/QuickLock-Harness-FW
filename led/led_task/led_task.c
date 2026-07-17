@@ -5,6 +5,7 @@
  * LED according to the current security and battery state.
  */
 
+#include <stdio.h>
 #include "led_task.h"
 #include "globals.h"
 #include "freertos/FreeRTOS.h"
@@ -16,6 +17,8 @@
 
 void led_task(void *arg)
 {
+    printf("Starting task led_task on core %d\n", xPortGetCoreID());
+
     gpio_reset_pin(BUILTIN_LED_GPIO);
     gpio_set_direction(BUILTIN_LED_GPIO, GPIO_MODE_OUTPUT);
 

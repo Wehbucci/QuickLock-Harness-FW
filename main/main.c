@@ -39,7 +39,7 @@ void app_main(void)
                             NULL,
                             4,
                             &alarm_task_handle,
-                            0);
+                            1);
 
     xTaskCreatePinnedToCore(battery_status_task,
                             "battery_status_task",
@@ -55,7 +55,7 @@ void app_main(void)
                             NULL,
                             5,
                             &security_core_task_handle,
-                            0);
+                            1);
 
     /* app_main() returns here; the tasks keep running on their cores. */
 }

@@ -6,6 +6,7 @@
  * low->high transition it wakes the LED task.
  */
 
+#include <stdio.h>
 #include "battery_status_task.h"
 #include "globals.h"
 #include "freertos/FreeRTOS.h"
@@ -16,6 +17,8 @@ const int LOW_BATTERY_THRESHOLD = 20;
 
 void battery_status_task(void *arg)
 {
+    printf("Starting task battery_status_task on core %d\n", xPortGetCoreID());
+
     int battery_percentage;
     while (1) {
         // TODO: Check battery %
@@ -23,13 +26,13 @@ void battery_status_task(void *arg)
 
         if (battery_percentage <= LOW_BATTERY_THRESHOLD) {
             if (battery_state == BATTERY_HIGH) {
-                xTaskNotifyGive(led_task_handle);
+                wake_up_led_task();
                 request_chirp();
             }
             battery_state = BATTERY_LOW;
         } else {
             if (battery_state == BATTERY_LOW) {
-                xTaskNotifyGive(led_task_handle);
+                wake_up_led_task();
             }
             battery_state = BATTERY_HIGH;
         }

@@ -5,6 +5,7 @@
  * requests from other tasks.
  */
 
+#include <stdio.h>
 #include "alarm_task.h"
 #include "globals.h"
 #include "freertos/FreeRTOS.h"
@@ -14,6 +15,8 @@
 
 void alarm_task(void *arg)
 {
+    printf("Starting task alarm_task on core %d\n", xPortGetCoreID());
+
     /* Notification Bits */
     /* Bits 31-2 | Bit 1         | Bit 0           */
     /* Unused    | Chirp request | General wake up */

@@ -65,13 +65,18 @@ extern enum BELT_STATE     belt_state;       /* Owned by Belt Detection Task  */
 /* Notification bit constants                                         */
 /* ------------------------------------------------------------------ */
 
+extern const uint32_t ALARM_WAKE_BIT;
 extern const uint32_t ALARM_CHIRP_BIT;
 extern const uint32_t SECURITY_BLE_BIT;
 extern const uint32_t SECURITY_BELT_DETECTION_BIT;
+extern const uint32_t SECURITY_IMU_BIT;
 
 /* ------------------------------------------------------------------ */
-/* Global helper functions                                            */
+/* Global communication functions                                     */
+/*   Should only be called from tasks designated to communicate with  */
+/*   the target task.                                                 */
 /* ------------------------------------------------------------------ */
 
-/* Notify the alarm task to emit a short chirp. Safe to call from any task. */
 void request_chirp(void);
+void wake_up_alarm_task(void);
+void wake_up_led_task(void);

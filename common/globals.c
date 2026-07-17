@@ -22,12 +22,24 @@ enum BLE_COMMANDS   ble_command    = BLE_NO_COMMAND;      /* Owned by BLE Task  
 enum BELT_STATE     belt_state     = BELT_UNKNOWN;        /* Owned by Belt Detection Task  */
 
 /* Notification bit constants. */
-const uint32_t ALARM_CHIRP_BIT            = 1UL << 1;
-const uint32_t SECURITY_BLE_BIT           = 1UL << 1;
+const uint32_t ALARM_WAKE_BIT              = 1UL;
+const uint32_t ALARM_CHIRP_BIT             = 1UL << 1;
+const uint32_t SECURITY_BLE_BIT            = 1UL << 1;
 const uint32_t SECURITY_BELT_DETECTION_BIT = 1UL << 2;
+const uint32_t SECURITY_IMU_BIT            = 1UL << 3;
 
-/* Notify the alarm task to emit a short chirp. Safe to call from any task. */
+/* Communication Functions. Should only be called from tasks designated to communicate with the target task. */
 void request_chirp(void)
 {
     xTaskNotify(alarm_task_handle, ALARM_CHIRP_BIT, eSetBits);
+}
+
+void wake_up_alarm_task(void)
+{
+    xTaskNotify(alarm_task_handle, ALARM_WAKE_BIT, eSetBits);
+}
+
+void wake_up_led_task(void)
+{
+    xTaskNotifyGive(led_task_handle);
 }
