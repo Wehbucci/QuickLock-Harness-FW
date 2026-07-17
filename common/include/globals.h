@@ -80,3 +80,6 @@ extern const uint32_t SECURITY_IMU_BIT;
 void request_chirp(void);
 void wake_up_alarm_task(void);
 void wake_up_led_task(void);
+void ble_wake_up_security_task(void);
+void belt_detection_wake_up_security_task(void);
+void imu_wake_up_security_task(void);

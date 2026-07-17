@@ -43,3 +43,18 @@ void wake_up_led_task(void)
 {
     xTaskNotifyGive(led_task_handle);
 }
+
+void ble_wake_up_security_task(void)
+{
+    xTaskNotify(security_core_task_handle, SECURITY_BLE_BIT, eSetBits);
+}
+
+void belt_detection_wake_up_security_task(void)
+{
+    xTaskNotify(security_core_task_handle, SECURITY_BELT_DETECTION_BIT, eSetBits);
+}
+
+void imu_wake_up_security_task(void)
+{
+    xTaskNotify(security_core_task_handle, SECURITY_IMU_BIT, eSetBits);
+}
