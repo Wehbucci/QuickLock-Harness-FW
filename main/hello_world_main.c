@@ -21,16 +21,22 @@
 #include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_err.h"
+
+#include "imu_hal.h"
+#include "imu_detection.h"
 
 /* Each task prints "Hello world" once per second, forever. */
 static void hello_task(void *arg)
 {
     const char *name = (const char *)arg;
     uint32_t count = 0;
+    (void)name;
+    (void)count;
 
     for (;;) {
-        printf("Hello world from %s running on core %d (count %" PRIu32 ")\n",
-               name, xPortGetCoreID(), count++);
+        // printf("Hello world from %s running on core %d (count %" PRIu32 ")\n",
+        //        name, xPortGetCoreID(), count++);
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
@@ -58,5 +64,18 @@ void app_main(void)
                             NULL,
                             1);              /* core to pin to: APP_CPU  */
 
-    /* app_main() returns here; the two tasks keep running on their cores. */
+    ESP_ERROR_CHECK(imu_hal_init());
+
+    /* IMU task: priority 7 (highest), core 1, per Table 4. Stack is larger
+     * than it looks like it should need -- two 256-float ring buffers (2KB),
+     * I2C driver call depth, and printf/ESP_LOGW formatting several floats
+     * through newlib add up faster than expected; 4096 overflowed under
+     * sustained load. */
+    xTaskCreatePinnedToCore(imu_detection_task,
+                            "imu_detection",
+                            8192,
+                            NULL,
+                            7,
+                            NULL,
+                            1);
 }
