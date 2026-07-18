@@ -53,7 +53,12 @@ QuickLock-Harness-FW/
     ble_hal/    ble_hal.[ch]               the ONLY NimBLE translation unit
     ble_task/   ble_task.[ch]              connection state machine + block-on-queue loop
   components/                    (future subsystems land here — auto-scanned)
+    ql_console/ ql_console.[ch]            BRING-UP ONLY: operator commands on the monitor UART
 ```
+
+`ql_console` is the first tenant of `components/`, and it is a live check that
+the layout claim above holds: it depends on the `ble/` group **by name**
+(`PRIV_REQUIRES ble_hal ble_task`), exactly as Security/Detection/Alarm/LED will.
 
 Add future groups the same way, e.g. `set(EXTRA_COMPONENT_DIRS ble security)`.
 
@@ -103,6 +108,7 @@ is logged on every connect.
 | NimBLE host (`nimble_host`) | `configMAX_PRIORITIES-4` (21 by default) | 0 | 4096 B | `nimble_port_freertos_init()` |
 | **BLE Communication** (`ble_task`) | **3** | **0** | 4096 words | `ble_task_start()` |
 | Stub Security consumer (`sec_stub`) | 2 | 1 | 3072 B | `ble_events_start_stub_consumer()` |
+| Console REPL (`console_repl`) | 2 | 1 | 4096 B | `ql_console_start()` (bring-up only) |
 
 The controller, NimBLE host, and our BLE task all live on **core 0** so the
 safety-critical detection/alarm chain (core 1) is never delayed by the radio
@@ -156,10 +162,52 @@ idf.py -p /dev/tty.usbserial-XXXX flash monitor    # your serial port
 Exit the monitor with `Ctrl-]`. A fresh checkout regenerates `sdkconfig` from
 `sdkconfig.defaults`; run `idf.py reconfigure` after changing the defaults.
 
-To **force re-pairing** (wipe stored bonds): `idf.py -p PORT erase-flash`, then
-flash again (or call `ble_task_enter_pairing_mode()` from a future button/console
-hook — the harness also auto-opens the pairing window on first boot when no bond
-is stored).
+To **force re-pairing** (wipe stored bonds): type `bonds clear` then `pair` at
+the console below. (`idf.py -p PORT erase-flash` still works and wipes more.)
+The harness also auto-opens the pairing window on first boot when no bond is
+stored.
+
+---
+
+## The bring-up console
+
+The harness has no board HAL and no buttons yet, so `components/ql_console`
+puts the operator inputs on the UART `idf.py monitor` is already showing. Type
+a command and press Enter at the `quicklock>` prompt:
+
+| Command | Does |
+|---|---|
+| `pair` | Open the pairing window (`PAIRING_WINDOW_MS`) so a **new** fob may bond (F15) |
+| `status` | State machine, connection handle, bond count, pairing window, filtered RSSI |
+| `bonds` | How many bonds are stored |
+| `bonds clear` | Delete all stored bonds — forces a re-pair (F15/F18) |
+| `rssi <dbm>` | Force the RSSI sample, e.g. `rssi -80` — test hook, see below |
+| `rssi clear` | Go back to the real radio RSSI |
+| `help` | List the commands |
+
+Until this existed, three capabilities the firmware **already implemented** had
+no caller and could not be reached from outside: `ble_task_enter_pairing_mode()`
+(which carried a `TODO(ui)` for exactly this), `ble_hal_delete_all_bonds()`, and
+the proximity decision path. `pair` is a placeholder for the real UI, not a
+replacement for it — when the pairing button lands, it becomes one more caller
+of the same `ble_task` API.
+
+**On `rssi <dbm>`.** Mechanism B (F14) is an EMA plus a hysteresis band feeding
+two events. Testing it by walking away also tests `RSSI_C_DBM` / `RSSI_N`, which
+are still **uncalibrated defaults** — so a failure is ambiguous, and you cannot
+tell a broken threshold from an untuned constant. Injecting the sample makes the
+decision logic deterministic at a desk; the injected value still flows through
+the real filter and the real thresholds. It does **not** replace the walk test,
+which is the only thing that validates the constants. The override logs at
+**warning** level and shows up in `status`, because a forgotten override would
+make every later range test lie. Set `QL_TEST_HOOKS_ENABLED` to `0` in
+`config.h` for a production build and the override cannot exist at runtime.
+
+> The REPL prompt and the log share one UART, so log lines will scroll over the
+> prompt. That is expected — press Enter to redraw it.
+
+**A full step-by-step bring-up plan — both firmwares, every command, every
+expected log line, with tick-boxes — is `extras/TEST_PLAN.md`.**
 
 ### Proximity unit tests
 
@@ -227,8 +275,9 @@ every event posted to the Security queue.
   *implied* by the command (ARM->ARMED, DISARM->DISARMED). In the full system the
   **confirmed** state should come from the Security task. (`// TODO(security-core)`
   in `ble_task.c: handle_command`.)
-- **Pairing button** — `ble_task_enter_pairing_mode()` is ready to wire to a
-  physical button / console command via a board HAL. (`// TODO(ui)`.)
+- **Pairing button** — `ble_task_enter_pairing_mode()` is wired to the console's
+  `pair` command; a physical button via a board HAL is still to come, and will
+  call the same function. (`// TODO(ui)`.)
 - **Fob Battery characteristic (F29)** — deferred; `// TODO(F29)` marker in
   `ble_contract.h`.
 - **LED + tone arm/disarm confirmation (F17)** — belongs to the LED/Alarm tasks;
