@@ -85,4 +85,27 @@
 /* Depth of the outbound queue to the (future) Security task. */
 #define BLE_EVENT_QUEUE_LEN 16
 
+/* -------------------------------------------------------------------------- */
+/* Bench test hooks (bring-up only)                                            */
+/* -------------------------------------------------------------------------- */
+
+/* Enables the test affordances the serial console drives — today just the RSSI
+ * override in ble_task (see ble_task_inject_rssi), which lets Mechanism B be
+ * exercised at a desk rather than by walking 5 m away against an UNCALIBRATED
+ * path-loss model (RSSI_C_DBM / RSSI_N are still their untuned defaults, so a
+ * walk test measures the constants as much as the code).
+ *
+ * Set to 0 for a production build: the override then cannot exist at runtime,
+ * because the code that reads it is not compiled. Read-only console commands
+ * (status/bonds) and the pairing window are NOT gated by this — they call
+ * ordinary API the firmware already exposes. */
+#define QL_TEST_HOOKS_ENABLED 1
+
+/* Console task placement. Core 1 on purpose: core 0 carries the controller,
+ * the NimBLE host, and the BLE task, and a human typing at a terminal must
+ * never contend with the radio (F35). */
+#define QL_CONSOLE_TASK_PRIO  2
+#define QL_CONSOLE_TASK_CORE  1
+#define QL_CONSOLE_TASK_STACK 4096
+
 #endif /* QUICKLOCK_CONFIG_H */

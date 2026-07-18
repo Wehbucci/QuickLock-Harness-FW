@@ -18,6 +18,7 @@
 #include "ble_events.h"
 #include "ble_hal.h"
 #include "ble_task.h"
+#include "ql_console.h"
 
 static const char *TAG = "main";
 
@@ -40,11 +41,19 @@ void app_main(void)
      *    inbound queue as the HAL event sink and runs the block-on-queue loop. */
     ESP_ERROR_CHECK(ble_task_start());
 
+    /* 4) Bring-up console on the monitor UART (core 1, off the radio's core).
+     *    The harness has no buttons yet, so this is the only way to reach the
+     *    pairing window and bond management from outside. Stands in for the
+     *    real UI; see ql_console.h. */
+    ESP_ERROR_CHECK(ql_console_start());
+
     ESP_LOGI(TAG, "init complete; app_main returning (tasks run on)");
-    /* app_main returns; the BLE task, NimBLE host task, and stub consumer run on.
+    /* app_main returns; the BLE task, NimBLE host task, stub consumer, and the
+     * console REPL run on.
      *
      * Pairing: on first boot (no stored bond) the harness opens its pairing
-     * window automatically. To force re-pairing later, erase NVS
-     * (idf.py erase-flash) or call ble_task_enter_pairing_mode() from a future
-     * button/console hook. */
+     * window automatically. To force re-pairing later, use the console
+     * (`bonds clear` then `pair`), or erase NVS (idf.py erase-flash).
+     * TODO(ui): move `pair` onto the physical pairing button when the board HAL
+     * exists — ble_task_enter_pairing_mode() will not change. */
 }
