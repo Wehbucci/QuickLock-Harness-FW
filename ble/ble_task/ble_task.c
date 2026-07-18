@@ -78,6 +78,14 @@ static int64_t s_connect_started_us;        /* for the F24 3 s budget log */
 static bool    s_reacquire_pending;
 static int64_t s_reacquire_deadline_us;
 
+#if QL_TEST_HOOKS_ENABLED
+/* Bench RSSI override (see ble_task.h for the rationale). Written by the
+ * console task, read by housekeeping on the BLE task; single aligned words, no
+ * read-modify-write on either side, so volatile is sufficient. */
+static volatile bool   s_rssi_override_on;
+static volatile int8_t s_rssi_override_dbm;
+#endif
+
 static int64_t now_us(void) { return esp_timer_get_time(); }
 static int64_t now_ms(void) { return esp_timer_get_time() / 1000; }
 
@@ -422,7 +430,18 @@ static void housekeeping_tick(void)
         (t - s_last_rssi_us) >= (int64_t)RSSI_SAMPLE_MS * 1000) {
         s_last_rssi_us = t;
         int8_t raw = 0;
-        int rc = ble_hal_get_rssi(s_conn_handle, &raw);
+        int rc;
+#if QL_TEST_HOOKS_ENABLED
+        if (s_rssi_override_on) {
+            /* Test hook: substitute the sample at the source, so everything
+             * downstream (EMA, hysteresis, events) is the real code path. */
+            raw = s_rssi_override_dbm;
+            rc = 0;
+        } else
+#endif
+        {
+            rc = ble_hal_get_rssi(s_conn_handle, &raw);
+        }
         if (rc != 0 || !proximity_rssi_is_valid(raw)) {
             QL_LOGD("RSSI sample unavailable (rc=%d raw=%d)", rc, raw);
             return;
@@ -504,3 +523,58 @@ void ble_task_enter_pairing_mode(void)
      * deferral or a console command without touching the state machine directly. */
     s_pairing_request = true;
 }
+
+void ble_task_log_status(void)
+{
+    QL_LOGI("--- status ---");
+    QL_LOGI("state    : %s", state_name(s_state));
+    if (s_conn_handle != BLE_HS_INVALID_HANDLE) {
+        QL_LOGI("conn     : handle=%u", s_conn_handle);
+    } else {
+        QL_LOGI("conn     : none");
+    }
+    QL_LOGI("bonds    : %d stored (max %d)", ble_hal_bond_count(), MAX_BONDS);
+
+    if (s_pairing_mode) {
+        int64_t left_ms = (s_pairing_deadline_us - now_us()) / 1000;
+        QL_LOGI("pairing  : OPEN (%lld ms left)", (long long)(left_ms > 0 ? left_ms : 0));
+    } else {
+        QL_LOGI("pairing  : CLOSED (new bonds refused; `pair` opens it)");
+    }
+
+    if (s_state == ST_CONNECTED) {
+        float filt = proximity_filtered_rssi(&s_prox);
+        QL_LOGI("proximity: filt=%.1f dBm (~%.1f m) out_of_range=%s",
+                filt, proximity_distance_m(&s_prox, filt),
+                proximity_is_out_of_range(&s_prox) ? "YES" : "no");
+    } else {
+        QL_LOGI("proximity: n/a (not connected)");
+    }
+
+#if QL_TEST_HOOKS_ENABLED
+    if (s_rssi_override_on) {
+        QL_LOGW("rssi ovr : ON at %d dBm -- NOT reading the real radio",
+                s_rssi_override_dbm);
+    } else {
+        QL_LOGI("rssi ovr : off (real radio RSSI)");
+    }
+#endif
+    QL_LOGI("--------------");
+}
+
+#if QL_TEST_HOOKS_ENABLED
+void ble_task_inject_rssi(int8_t dbm)
+{
+    s_rssi_override_dbm = dbm;
+    s_rssi_override_on = true;
+    /* Warn, not info: a forgotten override would make every later range test
+     * lie, so it should be loud in the log. */
+    QL_LOGW("TEST HOOK: RSSI override ON at %d dBm (real radio RSSI ignored)", dbm);
+}
+
+void ble_task_clear_rssi_override(void)
+{
+    s_rssi_override_on = false;
+    QL_LOGI("TEST HOOK: RSSI override OFF (back to real radio RSSI)");
+}
+#endif

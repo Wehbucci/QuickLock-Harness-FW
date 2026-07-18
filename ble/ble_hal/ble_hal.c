@@ -284,6 +284,52 @@ static bool adv_has_quicklock_service(const uint8_t *data, uint8_t len)
     return false;
 }
 
+/*
+ * log_pairing_method — say, in the log, whether this bond was formed with LE
+ * Secure Connections or fell back to LEGACY pairing (F36).
+ *
+ * Why this lookup is worth doing: sec_state reports encrypted/authenticated/
+ * bonded, and NONE of those distinguish LESC from legacy — the two are
+ * indistinguishable to the application once the link is up. F36 cites Secure
+ * Connections *by name*, and legacy Just Works is materially weaker (it is
+ * open to passive eavesdropping during the pairing exchange), so an
+ * "encrypted=1" line is NOT evidence the requirement is met. Both sides ask
+ * for SC (ble_hs_cfg.sm_sc = 1 here; the fob's core sets lesc = 1), but what
+ * was actually NEGOTIATED is a runtime fact, and until now confirming it meant
+ * an air sniffer.
+ *
+ * The stored bond record keeps the answer in its `sc` bit. Read it back and
+ * state the result plainly — a spec-compliance finding the team needs belongs
+ * in the log, not in an afternoon with a sniffer.
+ *
+ * Note `authenticated == 0` is EXPECTED and is not a failure: Just Works
+ * cannot provide MITM protection (the fob has no display or keypad). The
+ * pairing-mode window, not MITM, is what stops a stranger bonding.
+ */
+static void log_pairing_method(const struct ble_gap_conn_desc *desc)
+{
+    struct ble_store_key_sec key = {0};
+    struct ble_store_value_sec value;
+
+    key.peer_addr = desc->peer_id_addr;
+    int rc = ble_store_read_peer_sec(&key, &value);
+    if (rc != 0) {
+        QL_LOGW("could not read the bond record to confirm the pairing method; "
+                "rc=%d (F36 remains unconfirmed)", rc);
+        return;
+    }
+
+    if (value.sc) {
+        QL_LOGI("F36 OK: bonded with LE Secure Connections (ECDH); "
+                "key_size=%d authenticated=%d (0 is expected for Just Works)",
+                value.key_size, (int)value.authenticated);
+    } else {
+        QL_LOGW("F36 RISK: this bond used LEGACY pairing, NOT Secure "
+                "Connections (key_size=%d). Report it; do not work around it.",
+                value.key_size);
+    }
+}
+
 /* -------------------------------------------------------------------------- */
 /* Unified GAP event handler (host-task context)                               */
 /* Used for both ble_gap_disc() and ble_gap_connect(); translate + post only.   */
@@ -330,6 +376,11 @@ static int ql_gap_event(struct ble_gap_event *event, void *arg)
             QL_LOGI("enc change; status=%d encrypted=%d authenticated=%d bonded=%d",
                     event->enc_change.status, desc.sec_state.encrypted,
                     desc.sec_state.authenticated, desc.sec_state.bonded);
+            /* The line above cannot distinguish LESC from legacy; this one can
+             * (F36). Only meaningful once encryption actually succeeded. */
+            if (event->enc_change.status == 0 && desc.sec_state.bonded) {
+                log_pairing_method(&desc);
+            }
         }
         post_simple(BLE_IN_ENC_CHANGED, event->enc_change.conn_handle,
                     event->enc_change.status);

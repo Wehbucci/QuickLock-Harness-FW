@@ -16,7 +16,9 @@
 #ifndef QUICKLOCK_BLE_TASK_H
 #define QUICKLOCK_BLE_TASK_H
 
+#include <stdint.h>
 #include "esp_err.h"
+#include "config.h"   /* QL_TEST_HOOKS_ENABLED */
 
 /*
  * ble_task_start — create the inbound queue, register it as the HAL event sink,
@@ -35,7 +37,38 @@ esp_err_t ble_task_start(void);
  * automatically on first boot when no bond is stored yet.
  *
  * TODO(ui): wire this to the physical pairing button when the board HAL exists.
+ * Wired to the serial console's `pair` command in the meantime (ql_console).
  */
 void ble_task_enter_pairing_mode(void);
+
+/*
+ * ble_task_log_status — dump the state machine's current state, connection
+ * handle, bond count, pairing window, and latest filtered RSSI to the log.
+ * Read-only; safe to call from another task (the console). The values are read
+ * without a lock: each is a single aligned word owned by the BLE task, so a
+ * snapshot can be one tick stale but never torn — which is fine for a human
+ * asking "where are we?".
+ */
+void ble_task_log_status(void);
+
+#if QL_TEST_HOOKS_ENABLED
+/*
+ * ble_task_inject_rssi — force every subsequent RSSI sample to `dbm` instead of
+ * reading the radio, until ble_task_clear_rssi_override().
+ *
+ * Why this exists: Mechanism B (F14) is a filter and a hysteresis band feeding
+ * two events, and verifying it by walking away tests the UNCALIBRATED path-loss
+ * constants at the same time — so a failure is ambiguous. Injecting the sample
+ * makes the decision logic deterministic and testable at a desk. It does NOT
+ * replace the walk test, which is the only thing that validates the constants.
+ *
+ * The injected value still flows through the real EMA and the real thresholds;
+ * only the source of the raw sample changes.
+ */
+void ble_task_inject_rssi(int8_t dbm);
+
+/* Return to reading real RSSI from the radio. */
+void ble_task_clear_rssi_override(void);
+#endif /* QL_TEST_HOOKS_ENABLED */
 
 #endif /* QUICKLOCK_BLE_TASK_H */
