@@ -10,8 +10,10 @@ idf_component_register(SRCS "main.c"
                                 alarm_task
                                 battery_status_task
                                 security_core_task
+                                belt_detection_task
                                 ble_events
                                 ble_security_bridge
                                 ble_hal
                                 ble_task
-                                ql_console)
+                                ql_console
+                                esp_driver_gpio)

@@ -8,4 +8,8 @@
 
 #pragma once
 
+/* Call once during system init, before starting alarm_task. Configures the
+ * boost-enable GPIO and the buzzer PWM channel. */
+void alarm_task_init(void);
+
 void alarm_task(void *arg);

@@ -19,6 +19,7 @@
 #include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "driver/gpio.h"
 #include "esp_err.h"
 
 #include "globals.h"
@@ -26,6 +27,7 @@
 #include "alarm_task.h"
 #include "battery_status_task.h"
 #include "security_core_task.h"
+#include "belt_detection_task.h"
 
 #include "ble_events.h"
 #include "ble_security_bridge.h"
@@ -55,6 +57,9 @@ void app_main(void)
 {
     printf("Starting dual-core FreeRTOS QuickLock FW on %s (%d cores)\n",
            CONFIG_IDF_TARGET, CONFIG_FREERTOS_NUMBER_OF_CORES);
+
+    gpio_install_isr_service(0);
+    alarm_task_init();
 
     /* 1) Outbound event contract from BLE to Security. Created before anything
      *    can post to it. */
@@ -95,6 +100,7 @@ void app_main(void)
                             &security_core_task_handle,
                             1);
 
+    belt_detection_init();
     /* 3) Bring up NVS + the NimBLE host and configure LE Secure Connections +
      *    bonding + Just Works. The stack finishes syncing asynchronously; the
      *    BLE task waits for that before it scans. */

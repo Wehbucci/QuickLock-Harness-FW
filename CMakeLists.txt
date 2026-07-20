@@ -18,7 +18,8 @@ set(EXTRA_COMPONENT_DIRS
     led
     alarm
     battery_status
-    security_core)
+    security_core
+    belt_detection)
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
