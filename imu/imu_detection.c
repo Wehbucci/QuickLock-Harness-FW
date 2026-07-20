@@ -81,18 +81,7 @@ static uint32_t ring_buffer_count_over(const mag_ring_buffer_t *rb, size_t windo
     return over;
 }
 
-static volatile security_state_t s_state = SECURITY_STATE_QUIET;
-static volatile bool s_disarm_requested = false;
-
-security_state_t imu_detection_get_state(void)
-{
-    return s_state;
-}
-
-void imu_detection_disarm(void)
-{
-    s_disarm_requested = true;
-}
+volatile security_state_t g_imu_state = SECURITY_STATE_QUIET;
 
 static const char *state_name(security_state_t state)
 {
@@ -106,11 +95,11 @@ static const char *state_name(security_state_t state)
 
 static void set_state(security_state_t new_state)
 {
-    if (new_state == s_state) {
+    if (new_state == g_imu_state) {
         return;
     }
-    ESP_LOGW(TAG, "state change: %s -> %s", state_name(s_state), state_name(new_state));
-    s_state = new_state;
+    ESP_LOGW(TAG, "state change: %s -> %s", state_name(g_imu_state), state_name(new_state));
+    g_imu_state = new_state;
     /* TODO: xTaskNotify(alarm_task) once the Alarm task exists (T4: <=100ms budget). */
 }
 
@@ -127,8 +116,29 @@ void imu_detection_task(void *arg)
     uint32_t grace_samples = 0;
     uint32_t quiet_samples = 0;
     uint32_t sample_num = 0;
+    bool was_armed = false;
 
     for (;;) {
+        if (!g_armed) {
+            /* Disarmed: idle instead of sampling. This polls the flag for
+             * now; a later version should block on a semaphore given by
+             * whichever task raises the arming event, instead of waking up
+             * on a timer just to check a bool. */
+            if (was_armed) {
+                ESP_LOGI(TAG, "disarmed, idling");
+                was_armed = false;
+            }
+            g_imu_state = SECURITY_STATE_QUIET;
+            grace_samples = 0;
+            quiet_samples = 0;
+            vTaskDelay(pdMS_TO_TICKS(200));
+            continue;
+        }
+        if (!was_armed) {
+            ESP_LOGI(TAG, "armed, resuming sampling");
+            was_armed = true;
+        }
+
         if (!imu_hal_wait_for_data_ready(pdMS_TO_TICKS(50))) {
             continue; /* no interrupt within timeout; keep waiting */
         }
@@ -163,13 +173,23 @@ void imu_detection_task(void *arg)
         if (++sample_num >= PRINT_EVERY_N_SAMPLES) {
             sample_num = 0;
             printf("accel [g]: x=%.2f y=%.2f z=%.2f | mag=%.2f | over_trig=%2" PRIu32 "/100 "
-                   "| gyro [dps]: x=%.1f y=%.1f z=%.1f | rate=%.1f | over_tilt=%2" PRIu32 "/100 | state=%s\n",
+                   "| gyro [dps]: x=%.1f y=%.1f z=%.1f | rate=%.1f | over_tilt=%2" PRIu32 "/100 "
+                   "| buckle_open=%d | state=%s\n",
                    sample.accel_x_g, sample.accel_y_g, sample.accel_z_g, mag, over_trig,
                    sample.gyro_x_dps, sample.gyro_y_dps, sample.gyro_z_dps, gyro_rate_dps, over_tilt,
-                   state_name(s_state));
+                   g_buckle_open, state_name(g_imu_state));
         }
 
-        switch (s_state) {
+        if (g_buckle_open) {
+            /* Strap cut/unplugged (F1, F2): unmistakable, bypasses the grace
+             * period and holds TIER3_ALARM for as long as the loop is open,
+             * regardless of the motion/tilt state machine below. */
+            quiet_samples = 0;
+            set_state(SECURITY_STATE_TIER3_ALARM);
+            continue;
+        }
+
+        switch (g_imu_state) {
         case SECURITY_STATE_QUIET:
             if (over_trig >= TRIGGER_SAMPLE_COUNT) {
                 grace_samples = 0;
@@ -183,12 +203,11 @@ void imu_detection_task(void *arg)
             break;
 
         case SECURITY_STATE_TIER2_GRACE:
-            if (s_disarm_requested) {
-                s_disarm_requested = false;
-                set_state(SECURITY_STATE_QUIET);
-            } else if (++grace_samples >= GRACE_PERIOD_SAMPLES) {
+            if (++grace_samples >= GRACE_PERIOD_SAMPLES) {
                 set_state(SECURITY_STATE_TIER3_ALARM);
             }
+            /* Disarm cancelling this grace period happens via the g_armed
+             * gate above, not a separate check here. */
             break;
 
         case SECURITY_STATE_TIER3_ALARM:
