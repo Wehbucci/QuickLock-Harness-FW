@@ -4,12 +4,14 @@
  * GPIO interrupt + debounce based belt detection.
  */
 
-#include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
 #include "esp_timer.h"
 #include "globals.h"
+#include "ql_log.h"
+
+QL_LOG_TAG("belt");
 
 #define BELT_GPIO GPIO_NUM_39
 #define BELT_DEBOUNCE_MS 40
@@ -33,8 +35,7 @@ static void belt_debounce_timeout_cb(void *arg)
 
     belt_state = new_state;
 
-    printf("[belt] %s\n",
-           level ? "OPEN" : "CLOSED");
+    QL_LOGI("belt %s", level ? "OPEN" : "CLOSED");
 
     belt_detection_wake_up_security_task();
 }

@@ -5,18 +5,20 @@
  * requests from other tasks.
  */
 
-#include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
 
 #include "alarm_task.h"
 #include "globals.h"
+#include "ql_log.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 #include "driver/gpio.h"
 #include "driver/ledc.h"
+
+QL_LOG_TAG("alarm");
 
 #define BOOST_EN_GPIO GPIO_NUM_17
 #define BUZZER_PWM_GPIO GPIO_NUM_16
@@ -30,7 +32,7 @@
 #define DUTY_FULL 512
 
 #define CHIRP_DUTY 300
-#define CHIRP_MS 500
+#define CHIRP_MS 100
 
 void alarm_task_init(void)
 {
@@ -70,7 +72,7 @@ void alarm_task_init(void)
 
 void alarm_task(void *arg)
 {
-    printf("Starting task alarm_task on core %d\n", xPortGetCoreID());
+    QL_LOGI("task started on core %d", xPortGetCoreID());
 
     /* Notification Bits */
     /* Bits 31-2 | Bit 1         | Bit 0           */
@@ -80,6 +82,7 @@ void alarm_task(void *arg)
     bool chirp_requested = false;
     while (1) {
         xTaskNotifyWait(0, 0xFFFFFFFF, &notification_value, portMAX_DELAY);
+        QL_LOGI("woke up; notification=0x%08x", (unsigned)notification_value);
         chirp_requested = notification_value & ALARM_CHIRP_BIT;
 
         if (security_state == SECURITY_DISARMED || security_state == SECURITY_ARMED_QUIET) {
@@ -116,7 +119,7 @@ void alarm_task(void *arg)
                              LEDC_CHANNEL);
 
         } else {
-            printf("[alarm] unknown security state\n");
+            QL_LOGW("unknown security_state %d", (int)security_state);
         }
 
         if (chirp_requested && (security_state == SECURITY_DISARMED || security_state == SECURITY_ARMED_QUIET)) {

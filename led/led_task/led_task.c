@@ -5,25 +5,28 @@
  * LED according to the current security and battery state.
  */
 
-#include <stdio.h>
 #include "led_task.h"
 #include "globals.h"
+#include "ql_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
+
+QL_LOG_TAG("led");
 
 /* Built-in LED on most ESP32 dev boards. */
 #define BUILTIN_LED_GPIO GPIO_NUM_2
 
 void led_task(void *arg)
 {
-    printf("Starting task led_task on core %d\n", xPortGetCoreID());
+    QL_LOGI("task started on core %d", xPortGetCoreID());
 
     gpio_reset_pin(BUILTIN_LED_GPIO);
     gpio_set_direction(BUILTIN_LED_GPIO, GPIO_MODE_OUTPUT);
 
     while (1) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        QL_LOGI("woke up;");
 
         if (security_state != SECURITY_DISARMED && battery_state == BATTERY_HIGH) {
             gpio_set_level(BUILTIN_LED_GPIO, 1);  // turn builtin LED on
@@ -36,7 +39,8 @@ void led_task(void *arg)
             gpio_set_level(BUILTIN_LED_GPIO, 1);  // turn builtin LED on
             // start a timer to blink on for 500ms every 5000ms
         } else {
-            // LOG: Unknown LED input combination
+            QL_LOGW("unhandled security_state=%d battery_state=%d",
+                    (int)security_state, (int)battery_state);
         }
     }
 }
