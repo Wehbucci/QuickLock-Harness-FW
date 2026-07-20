@@ -5,12 +5,14 @@
  * to arm, disarm, or escalate the alarm tier.
  */
 
-#include <stdio.h>
 #include "security_core_task.h"
 #include "globals.h"
+#include "ql_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include <stdint.h>
+
+QL_LOG_TAG("security_core");
 
 /* Private Security Core Functions */
 static void security_disarm(void)
@@ -48,7 +50,9 @@ static void security_tier2(void)
     security_state = SECURITY_ARMED_TIER2;
 
     if (prev_security_state == SECURITY_DISARMED) {
-        // LOG: Error, this should not be possible
+        QL_LOGE("tier2 escalation from DISARMED; unreachable state transition");
+    } else if (prev_security_state == SECURITY_ARMED_QUIET || prev_security_state == SECURITY_ARMED_TIER3) {
+        wake_up_alarm_task();
     }
 }
 
@@ -58,7 +62,9 @@ static void security_tier3(void)
     security_state = SECURITY_ARMED_TIER3;
 
     if (prev_security_state == SECURITY_DISARMED) {
-        // LOG: Error, this should not be possible
+        QL_LOGE("tier3 escalation from DISARMED; unreachable state transition");
+    } else if (prev_security_state == SECURITY_ARMED_QUIET || prev_security_state == SECURITY_ARMED_TIER2) {
+        wake_up_alarm_task();
     }
 }
 
@@ -69,7 +75,7 @@ static void arm_test(void)
 
 void security_core_task(void *arg)
 {
-    printf("Starting task security_core_task on core %d\n", xPortGetCoreID());
+    QL_LOGI("task started on core %d", xPortGetCoreID());
 
     /* Notification Bits */
     /* Bits 31-4 | Bit 3 | Bit 2          | Bit 1 | Bit 0           */
@@ -78,7 +84,9 @@ void security_core_task(void *arg)
 
     uint32_t notification_value;
     while (1) {
+        QL_LOGI("sleeping; current state=%d", (int)security_state);
         xTaskNotifyWait(0, 0xFFFFFFFF, &notification_value, portMAX_DELAY);
+        QL_LOGI("woke up; notification=0x%08x", (unsigned)notification_value);
 
         if (notification_value & SECURITY_BLE_BIT) {
             if (security_state == SECURITY_ARMED_QUIET || security_state == SECURITY_ARMED_TIER2 || security_state == SECURITY_ARMED_TIER3) {
@@ -91,7 +99,7 @@ void security_core_task(void *arg)
                     case BLE_OOR:
                         break;
                     default:
-                        // LOG: Received unknown request from BLE Task
+                        QL_LOGW("unknown ble_command %d while armed", (int)ble_command);
                 }
             } else if (security_state == SECURITY_DISARMED) {
                 switch (ble_command) {
@@ -106,7 +114,7 @@ void security_core_task(void *arg)
                         security_arm();
                         break;
                     default:
-                        // LOG: Received unknown request from BLE Task
+                        QL_LOGW("unknown ble_command %d while disarmed", (int)ble_command);
                 }
             }
         }
@@ -119,7 +127,7 @@ void security_core_task(void *arg)
                     case BELT_CLOSED:
                         break;
                     default:
-                        // LOG: Received unknown request from Belt Detection Task
+                        QL_LOGW("unknown belt_state %d while disarmed", (int)belt_state);
                 }
             } else if (security_state == SECURITY_ARMED_QUIET || security_state == SECURITY_ARMED_TIER2) {
                 switch (belt_state) {
@@ -129,7 +137,7 @@ void security_core_task(void *arg)
                     case BELT_CLOSED:
                         break;
                     default:
-                        // LOG: Received unknown request from Belt Detection Task
+                        QL_LOGW("unknown belt_state %d while armed", (int)belt_state);
                 }
             } else if (security_state == SECURITY_ARMED_TIER3) {
                 // Do nothing

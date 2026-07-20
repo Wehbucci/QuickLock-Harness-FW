@@ -15,13 +15,13 @@
  * Serves: F13, F14, F15, F17, F18, F22, F24, F35, F36 (via the modules it starts).
  */
 
-#include <stdio.h>
 #include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
 #include "esp_err.h"
 
+#include "ql_log.h"
 #include "globals.h"
 #include "led_task.h"
 #include "alarm_task.h"
@@ -35,11 +35,14 @@
 #include "ble_task.h"
 #include "ql_console.h"
 
+QL_LOG_TAG("main");
+
 /*
  * Stack depths, in BYTES (ESP-IDF's xTaskCreatePinnedToCore takes bytes, not the
- * words vanilla FreeRTOS uses). Every one of these tasks calls printf() at least
- * once, which alone wants roughly a kilobyte of stack, so these are sized with
- * headroom rather than trimmed to the minimum.
+ * words vanilla FreeRTOS uses). Every one of these tasks logs at least once, and
+ * esp_log formats through a vprintf-style path that alone wants roughly a
+ * kilobyte of stack, so these are sized with headroom rather than trimmed to the
+ * minimum.
  */
 #define LED_TASK_STACK            2048
 #define ALARM_TASK_STACK          2048
@@ -55,8 +58,8 @@
 
 void app_main(void)
 {
-    printf("Starting dual-core FreeRTOS QuickLock FW on %s (%d cores)\n",
-           CONFIG_IDF_TARGET, CONFIG_FREERTOS_NUMBER_OF_CORES);
+    QL_LOGI("Starting dual-core FreeRTOS QuickLock FW on %s (%d cores)",
+            CONFIG_IDF_TARGET, CONFIG_FREERTOS_NUMBER_OF_CORES);
 
     gpio_install_isr_service(0);
     alarm_task_init();
@@ -121,7 +124,7 @@ void app_main(void)
      *    real UI; see ql_console.h. */
     ESP_ERROR_CHECK(ql_console_start());
 
-    printf("init complete; app_main returning (tasks run on)\n");
+    QL_LOGI("init complete; app_main returning (tasks run on)");
     /* app_main returns; the application tasks, the NimBLE host task, the BLE
      * task, the bridge, and the console REPL run on.
      *

@@ -6,18 +6,20 @@
  * low->high transition it wakes the LED task.
  */
 
-#include <stdio.h>
 #include "battery_status_task.h"
 #include "globals.h"
+#include "ql_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+
+QL_LOG_TAG("battery");
 
 /* Battery State Consts */
 const int LOW_BATTERY_THRESHOLD = 20;
 
 void battery_status_task(void *arg)
 {
-    printf("Starting task battery_status_task on core %d\n", xPortGetCoreID());
+    QL_LOGI("task started on core %d", xPortGetCoreID());
 
     int battery_percentage;
     while (1) {
