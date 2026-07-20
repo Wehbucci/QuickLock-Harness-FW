@@ -13,17 +13,22 @@
 #include "sdkconfig.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "driver/gpio.h"
 
 #include "globals.h"
 #include "led_task.h"
 #include "alarm_task.h"
 #include "battery_status_task.h"
 #include "security_core_task.h"
+#include "belt_detection_task.h"
 
 void app_main(void)
 {
     printf("Starting dual-core FreeRTOS QuickLock FW on %s (%d cores)\n",
            CONFIG_IDF_TARGET, CONFIG_FREERTOS_NUMBER_OF_CORES);
+
+    gpio_install_isr_service(0);
+    alarm_task_init();
 
     xTaskCreatePinnedToCore(led_task,           /* task function            */
                             "led_task",         /* task name                */
@@ -57,5 +62,5 @@ void app_main(void)
                             &security_core_task_handle,
                             1);
 
-    /* app_main() returns here; the tasks keep running on their cores. */
+    belt_detection_init();
 }
