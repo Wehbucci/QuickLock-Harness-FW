@@ -1,16 +1,50 @@
-# Project-wide default configuration.
+# Project-wide default configuration for the QuickLock harness BLE subsystem.
 #
-# These values are applied on top of ESP-IDF's built-in defaults whenever the
-# generated `sdkconfig` file does not yet exist (e.g. a fresh clone). Keep this
-# file minimal: only list settings the project deliberately depends on. Anything
-# not listed here uses the ESP-IDF default for the selected target.
-#
-# Regenerate the full sdkconfig from these defaults with:  idf.py reconfigure
+# Applied on top of ESP-IDF's built-in defaults whenever `sdkconfig` does not yet
+# exist (e.g. a fresh clone). Regenerate with:  idf.py reconfigure
+# Targeted IDF version: 6.0.0 (Kconfig symbol names verified against it).
 
-# Target chip: ESP32 (dual-core Xtensa LX6).
+# --- Target ----------------------------------------------------------------
 CONFIG_IDF_TARGET="esp32"
 
-# Run FreeRTOS in SMP dual-core mode. UNICORE=n keeps both cores active:
-# core 0 (PRO_CPU) and core 1 (APP_CPU). This is what lets the hello-world
-# tasks be pinned to separate cores with xTaskCreatePinnedToCore().
+# Dual-core SMP: core 0 runs the BLE controller + NimBLE host + our BLE task;
+# core 1 is reserved for the safety-critical detection/alarm chain (F35).
 CONFIG_FREERTOS_UNICORE=n
+
+# --- Flash / partitions ----------------------------------------------------
+# ESP32-WROOM-32E has 4 MB. NimBLE + app needs more than the default 2 MB single
+# app partition, so use the "large single app" table.
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+
+# --- Bluetooth: NimBLE host, not Bluedroid ---------------------------------
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+
+# Roles: central + observer only (the harness is the GATT client). No peripheral
+# or broadcaster — the harness never advertises or acts as a server.
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=y
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=y
+CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=n
+CONFIG_BT_NIMBLE_ROLE_BROADCASTER=n
+
+# GATT client on (server not needed for the central).
+CONFIG_BT_NIMBLE_GATT_CLIENT=y
+
+# Run the NimBLE host task on core 0 (F35: keep the radio off the core carrying
+# the hard real-time detection/alarm deadline).
+CONFIG_BT_NIMBLE_PINNED_TO_CORE_0=y
+
+# --- Security: LE Secure Connections + bonding, Just Works ------------------
+CONFIG_BT_NIMBLE_SECURITY_ENABLE=y
+CONFIG_BT_NIMBLE_SM_SC=y           # Secure Connections (ECDH + AES), BLE 4.2+ (F36)
+CONFIG_BT_NIMBLE_SM_LEGACY=y       # allow legacy fallback if a peer lacks SC
+
+# Persist bond keys to NVS so the pair survives a full power loss (F18).
+CONFIG_BT_NIMBLE_NVS_PERSIST=y
+
+# Store at least 2 bonds (F16). config.h MAX_BONDS must match this.
+CONFIG_BT_NIMBLE_MAX_BONDS=2
+
+# Single connection is all the harness needs (one fob).
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
