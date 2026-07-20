@@ -86,6 +86,10 @@ Security directly.
 
 ## BLE → Security
 
+> Summarised here. For the full flow with worked examples — an ARM press traced
+> from the fob to the LED, both out-of-range mechanisms, and the boot order — see
+> **[`ble_security_integration.md`](ble_security_integration.md)**.
+
 The two subsystems were written against different integration conventions, and
 the integration keeps both rather than forcing either to change:
 
