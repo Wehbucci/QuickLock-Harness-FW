@@ -2,8 +2,9 @@
 
 Central-side BLE firmware for the QuickLock harness (the ESP32-WROOM-32E main
 unit). The harness is the **BLE central / GATT client**; the keychain fob is the
-peripheral/GATT server. This project implements **only the BLE communication
-task** and its decoupled event interface to the (not-yet-built) Security task.
+peripheral/GATT server. This document covers the **BLE communication task** and
+the adapter that delivers its decisions to the **Security Core** task, which owns
+the arm/disarm state machine.
 
 - **Environment:** pure ESP-IDF, C, the **NimBLE host bundled with ESP-IDF**
   (native C API — not NimBLE-Arduino, not Bluedroid).
@@ -43,15 +44,19 @@ QuickLock-Harness-FW/
   CMakeLists.txt                 project: set(EXTRA_COMPONENT_DIRS ble) + project()
   sdkconfig.defaults             NimBLE on, central+observer, SC+bonding, NVS bonds, 2 bonds
   main/
-    main.c                       app_main: events -> HAL -> task, in order
+    main.c                       app_main: events -> tasks -> HAL -> bridge -> ble_task -> console
   ble/                           <-- BLE subsystem group (EXTRA_COMPONENT_DIRS)
     ble_contract/include/ble_contract.h   UUIDs (LE bytes), opcodes, Identity token — STACK-AGNOSTIC
     config/include/config.h                all tuning constants (section 7), no magic numbers
     ql_log/include/ql_log.h                per-module TAG + ESP_LOG wrappers
     proximity/  proximity.[ch] + test/     PURE math: path-loss, EMA, hysteresis (no BLE/IDF)
-    ble_events/ ble_events.[ch]            outbound queue + ble_event_t + stub Security consumer
+    ble_events/ ble_events.[ch]            outbound queue + ble_event_t (no globals.h dependency)
+    ble_security_bridge/                   ble_event_t -> ble_command + notify Security
     ble_hal/    ble_hal.[ch]               the ONLY NimBLE translation unit
     ble_task/   ble_task.[ch]              connection state machine + block-on-queue loop
+  common/       globals.[ch]     shared state, task handles, notification helpers
+  security_core/ security_core_task.[ch]   owns security_state; consumes ble_command
+  led/  alarm/  battery_status/  one task each (skeletons)
   components/                    (future subsystems land here — auto-scanned)
     ql_console/ ql_console.[ch]            BRING-UP ONLY: operator commands on the monitor UART
 ```
@@ -76,6 +81,54 @@ which unblocks our task immediately. On the timeout tick the task runs
 housekeeping (sample+filter RSSI, tick the pairing window and re-acquire grace).
 Outbound, the task posts `ble_event_t`s to the Security queue; it never calls
 Security directly.
+
+---
+
+## BLE → Security
+
+The two subsystems were written against different integration conventions, and
+the integration keeps both rather than forcing either to change:
+
+- **BLE side:** `ble_task` posts typed `ble_event_t`s to `ble_events_queue()` and
+  never names its consumer. It is unchanged by the integration and still runs
+  correctly with no Security task present.
+- **Security side (`common/globals.h`):** a producer sets the shared `ble_command`
+  global, then calls `ble_wake_up_security_task()`. `security_core_task` wakes on
+  `SECURITY_BLE_BIT`, reads the global, and updates `security_state`.
+
+`ble/ble_security_bridge/` is the single seam between them:
+
+| BLE event | → `ble_command` | Why |
+|---|---|---|
+| `ARM_REQUESTED` | `BLE_ARM` | F13, explicit fob command |
+| `DISARM_REQUESTED` | `BLE_DISARM` | F13; the only path back to S0 |
+| `FOB_OUT_OF_RANGE` | `BLE_OOR` | F14, Mechanism B (filtered RSSI) |
+| `LINK_LOST_SUPERVISION` | `BLE_OOR` | F22, Mechanism A (supervision timeout) |
+| `FOB_CONNECTED` / `FOB_DISCONNECTED` | *none* | see below |
+| `FOB_IN_RANGE` | *none* | returning does not disarm; S0 needs an explicit command |
+| `PAIRING_*`, `IDENTITY_REJECTED` | *none* | BLE-internal bookkeeping |
+
+Both range mechanisms map to `BLE_OOR` because Security's response is identical
+(auto-arm from S0); they differ only in confidence, which the log already
+distinguishes. A bare `FOB_DISCONNECTED` is deliberately not mapped — `ble_task`
+starts the re-acquire grace and raises `LINK_LOST_SUPERVISION` only if the fob
+fails to return, so acting on both would arm twice for one departure.
+
+### The `ble_command` race, and why it is closed
+
+`ble_command` is a single global with no lock, so a second event must not
+overwrite it before Security has read the first. The bridge runs on **core 1**
+(Security's core) at **priority 2**, below Security's **5**. Under FreeRTOS SMP
+that makes `ble_wake_up_security_task()` preempt the bridge immediately: Security
+runs to its next block and consumes `ble_command` before the bridge is scheduled
+again.
+
+This is why `BLE_SECURITY_BRIDGE_PRIO` / `_CORE` in `config.h` are not tuning
+knobs. Moving the bridge to core 0, or raising it to ≥ Security's priority, makes
+the two runnable concurrently and reintroduces a dropped-command bug that
+presents as *"the harness occasionally ignores the fob"* — rare, timing
+dependent, and unpleasant to debug. If a future design needs several commands in
+flight, replace the global with a queue rather than relaxing the placement.
 
 ---
 
@@ -106,15 +159,23 @@ is logged on every connect.
 | Task | Priority | Core | Stack | Created by |
 |---|---|---|---|---|
 | NimBLE host (`nimble_host`) | `configMAX_PRIORITIES-4` (21 by default) | 0 | 4096 B | `nimble_port_freertos_init()` |
-| **BLE Communication** (`ble_task`) | **3** | **0** | 4096 words | `ble_task_start()` |
-| Stub Security consumer (`sec_stub`) | 2 | 1 | 3072 B | `ble_events_start_stub_consumer()` |
+| **BLE Communication** (`ble_task`) | **3** | **0** | 4096 B | `ble_task_start()` |
+| **Security Core** (`security_core_task`) | **5** | **1** | 3072 B | `app_main` |
+| Alarm (`alarm_task`) | 4 | 1 | 2048 B | `app_main` |
+| LED (`led_task`) | 2 | 0 | 2048 B | `app_main` |
+| Battery status (`battery_status_task`) | 1 | 0 | 2048 B | `app_main` |
+| BLE→Security bridge (`ble_sec_bridge`) | 2 | 1 | 3072 B | `ble_security_bridge_start()` |
 | Console REPL (`console_repl`) | 2 | 1 | 4096 B | `ql_console_start()` (bring-up only) |
 
 The controller, NimBLE host, and our BLE task all live on **core 0** so the
 safety-critical detection/alarm chain (core 1) is never delayed by the radio
-(F35). The stub consumer sits on core 1 to mimic where the real Security task
-will run. Host-task priority/stack are the IDF defaults, noted here because the
+(F35). Host-task priority/stack are the IDF defaults, noted here because the
 F35 argument depends on knowing what runs on core 0.
+
+The bridge's **core 1 / priority 2** is a correctness constraint rather than a
+tuning choice: it must sit on the Security task's core at a lower priority, so
+that notifying Security preempts the bridge and the unlocked `ble_command` global
+is consumed before the bridge can overwrite it. See "BLE → Security" below.
 
 ---
 
@@ -266,15 +327,22 @@ every event posted to the Security queue.
 
 ## Integration hooks / TODOs for other subsystems
 
-- **Security Core task** — replace the stub consumer in `ble_events.c`
-  (`ble_events_start_stub_consumer`) with the real task receiving on
-  `ble_events_queue()`. The queue + `ble_event_t` enum are the integration
-  contract; the BLE task does not change. (`// TODO(security-core)` markers in
-  `ble_events.c`, `main.c`, `ble_task.c`.)
-- **State write-back source** — the BLE task currently writes back the state
-  *implied* by the command (ARM->ARMED, DISARM->DISARMED). In the full system the
-  **confirmed** state should come from the Security task. (`// TODO(security-core)`
-  in `ble_task.c: handle_command`.)
+- **Security Core task** — *done.* `ble/ble_security_bridge/` consumes
+  `ble_events_queue()` and republishes actionable events as `ble_command` +
+  `ble_wake_up_security_task()`. The queue + `ble_event_t` enum remain the
+  integration contract, and `ble_task` did not change. See "BLE → Security" below.
+- **Silence has no Security command** — `enum BLE_COMMANDS` in `common/globals.h`
+  has only `BLE_ARM`, `BLE_DISARM`, `BLE_OOR`, so the fob's silence opcode (0x03)
+  is dropped by the bridge with a warning. It must **not** be folded into
+  `BLE_DISARM`: disarm leaves the state machine in S0, whereas silence should
+  quiet the sounder while the harness stays armed. Fix = add `BLE_SILENCE` to
+  `globals.h` plus a case in `security_core_task.c`. (`// TODO(security-core)` in
+  `ble_security_bridge.c`.)
+- **State write-back source** — the BLE task still writes back the state
+  *implied* by the command (ARM->ARMED, DISARM->DISARMED) rather than the
+  **confirmed** `security_state`. Security can decline a command (e.g. ARM while
+  already armed is a no-op), so the fob's confirmation LED (F17) can disagree with
+  reality. (`// TODO(security-core)` in `ble_task.c: handle_command`.)
 - **Pairing button** — `ble_task_enter_pairing_mode()` is wired to the console's
   `pair` command; a physical button via a board HAL is still to come, and will
   call the same function. (`// TODO(ui)`.)

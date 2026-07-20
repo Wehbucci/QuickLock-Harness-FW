@@ -2,13 +2,15 @@
  * ble_events.h — decoupled event interface from the BLE task to the Security task.
  *
  * Purpose: the BLE Communication task never calls the Security Core task
- * directly. Instead it POSTS typed events onto a FreeRTOS queue and the Security
- * task drains them (HARNESS_BLE_TASK.md sections 3, 4, 11). This queue + enum is
- * the integration contract between the two subsystems, so the BLE task is fully
- * testable in isolation today and Security can attach later with no change here.
+ * directly. Instead it POSTS typed events onto a FreeRTOS queue and a consumer
+ * drains them (HARNESS_BLE_TASK.md sections 3, 4, 11). This queue + enum is the
+ * integration contract between the two subsystems, so the BLE task stays fully
+ * testable in isolation.
  *
- * For this first version a STUB consumer task drains the queue and logs each
- * event; the real Security task replaces it at the TODO below.
+ * The consumer is `ble_security_bridge`, which translates each actionable event
+ * into the Security Core task's `ble_command` + notification protocol. That
+ * translation lives there, not here: this module stays pure FreeRTOS plumbing
+ * with no dependency on the project-wide globals.h.
  *
  * Serves: F13, F14, F15, F22 (these decisions are surfaced as events).
  */
@@ -51,7 +53,8 @@ typedef struct {
  */
 esp_err_t ble_events_init(void);
 
-/* Handle of the outbound queue, so the future Security task can receive on it. */
+/* Handle of the outbound queue, so the consumer can receive on it. NULL before
+ * ble_events_init() succeeds. */
 QueueHandle_t ble_events_queue(void);
 
 /*
@@ -64,15 +67,5 @@ bool ble_events_post(ble_event_kind_t kind, int32_t detail);
 
 /* Human-readable name for a kind, for logging. Never NULL. */
 const char *ble_event_name(ble_event_kind_t kind);
-
-/*
- * ble_events_start_stub_consumer — spawn the placeholder consumer task that
- * drains the queue and logs each event with a timestamp.
- *
- * TODO(security-core): delete this stub and have the real Security task receive
- * on ble_events_queue() instead. The queue + ble_event_t are the contract; the
- * BLE task does not change when that swap happens.
- */
-void ble_events_start_stub_consumer(void);
 
 #endif /* QUICKLOCK_BLE_EVENTS_H */

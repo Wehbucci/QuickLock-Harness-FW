@@ -9,7 +9,6 @@
 #include "config.h"
 #include "ql_log.h"
 #include "freertos/task.h"
-#include "esp_timer.h"
 
 QL_LOG_TAG("ble_events");
 
@@ -69,33 +68,4 @@ const char *ble_event_name(ble_event_kind_t kind)
     case BLE_EVT_IDENTITY_REJECTED:     return "IDENTITY_REJECTED";
     default:                            return "UNKNOWN";
     }
-}
-
-/*
- * Stub Security consumer. Drains the queue and logs each event with a boot-
- * relative timestamp, standing in for the real Security Core task so the BLE
- * half can be verified end-to-end without the fob (TESTING_WITHOUT_FOB.md).
- */
-static void security_stub_task(void *arg)
-{
-    (void)arg;
-    QL_LOGI("stub Security consumer started (TODO: replace with Security Core)");
-    for (;;) {
-        ble_event_t evt;
-        if (xQueueReceive(s_event_q, &evt, portMAX_DELAY) == pdTRUE) {
-            int64_t t_ms = esp_timer_get_time() / 1000;
-            /* TODO(security-core): drive the security_state machine here instead
-             * of just logging. */
-            QL_LOGI("[t=%lld ms] consumed %s (detail=%ld)",
-                    (long long)t_ms, ble_event_name(evt.kind), (long)evt.detail);
-        }
-    }
-}
-
-void ble_events_start_stub_consumer(void)
-{
-    /* Core 1 on purpose: the safety-critical chain lives on core 1 (F35) and the
-     * real Security task will too, so exercise that placement now. Low priority;
-     * it only logs. */
-    xTaskCreatePinnedToCore(security_stub_task, "sec_stub", 3072, NULL, 2, NULL, 1);
 }

@@ -82,8 +82,25 @@
  * can burst (connect -> enc -> disc -> subscribe); this leaves slack. */
 #define BLE_INBOUND_QUEUE_LEN 16
 
-/* Depth of the outbound queue to the (future) Security task. */
+/* Depth of the outbound queue to the Security task. */
 #define BLE_EVENT_QUEUE_LEN 16
+
+/* -------------------------------------------------------------------------- */
+/* BLE -> Security Core bridge placement                                       */
+/* -------------------------------------------------------------------------- */
+
+/* These three values are a correctness constraint, not a tuning knob.
+ *
+ * The bridge hands commands to the Security Core task through the unlocked
+ * global `ble_command`, so it must not enqueue a second command before Security
+ * has read the first. Pinning the bridge to Security's core (1) at a priority
+ * BELOW Security's (5, set in main.c) makes ble_wake_up_security_task() preempt
+ * the bridge immediately, so Security consumes the command before the bridge
+ * runs again. Moving the bridge to core 0, or raising it to >= Security's
+ * priority, reintroduces a lost-command race. See ble_security_bridge.c. */
+#define BLE_SECURITY_BRIDGE_PRIO  2
+#define BLE_SECURITY_BRIDGE_CORE  1
+#define BLE_SECURITY_BRIDGE_STACK 3072
 
 /* -------------------------------------------------------------------------- */
 /* Bench test hooks (bring-up only)                                            */

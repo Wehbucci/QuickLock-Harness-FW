@@ -2,15 +2,25 @@
 # CMakeLists in this exact order for cmake to work correctly
 cmake_minimum_required(VERSION 3.22)
 
-include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+# Component groups. Each entry is a folder holding its components one level down
+# (e.g. led/led_task/), which is where ESP-IDF looks for the nested
+# CMakeLists.txt. Grouping keeps the auto-scanned components/ dir clean.
+#
+#   ble             — the BLE communication subsystem (see CLAUDE.md)
+#   common          — globals.h: cross-task shared state, handles, notify helpers
+#   led/alarm/...   — one task per folder
+#
+# Components are referenced BY NAME in REQUIRES, not by path, so a component in
+# one group can depend on one in another (ble_security_bridge REQUIRES common).
+set(EXTRA_COMPONENT_DIRS
+    ble
+    common
+    led
+    alarm
+    battery_status
+    security_core)
 
-# BLE subsystem components are grouped under ble/ (kept out of the auto-scanned
-# components/ dir so future subsystems — Security, Detection, Alarm, LED, … — can
-# be dropped into components/ or their own group folders without clutter). Each
-# subdir of ble/ is a normal IDF component; they are still referenced by name in
-# REQUIRES, so a future components/<subsystem> can depend on ble_hal, ql_log, etc.
-# Add more groups here as they appear, e.g. set(EXTRA_COMPONENT_DIRS ble security).
-set(EXTRA_COMPONENT_DIRS ble)
+include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 
 # "Trim" the build. Include the minimal set of components, main, and anything it depends on.
 idf_build_set_property(MINIMAL_BUILD ON)

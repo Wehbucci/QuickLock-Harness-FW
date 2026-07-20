@@ -1,6 +1,7 @@
-# ble_events: outbound event queue to the (future) Security task + stub consumer.
-# Pure FreeRTOS plumbing; needs config for queue depth, ql_log for logging,
-# esp_timer for timestamps. FreeRTOS + esp_timer come from the common requires.
+# ble_events: outbound event queue to the Security task. Pure FreeRTOS plumbing;
+# needs config for the queue depth and ql_log for logging. Deliberately does NOT
+# require `common` — the globals.h coupling lives in ble_security_bridge, which
+# is what keeps this module reusable and the BLE task independent of Security.
 idf_component_register(SRCS "ble_events.c"
                        INCLUDE_DIRS "include"
-                       REQUIRES config ql_log esp_timer)
+                       REQUIRES config ql_log)
