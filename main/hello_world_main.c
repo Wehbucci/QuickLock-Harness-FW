@@ -25,14 +25,7 @@
 
 #include "imu_hal.h"
 #include "imu_detection.h"
-
-/* Dummy placeholders until the tasks that really own these exist:
- * g_armed will be written by the Security Core / BLE task (arm/disarm
- * commands), g_buckle_open by the Belt Detection task (Section 3.2.2).
- * Defaulting g_armed to true keeps the IMU actively sampling for bench
- * testing; flip it to exercise the disarmed/idle path. */
-volatile bool g_armed = true;
-volatile bool g_buckle_open = false;
+#include "globals.h"
 
 /* Each task prints "Hello world" once per second, forever. */
 static void hello_task(void *arg)

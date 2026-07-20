@@ -10,6 +10,7 @@
 #include "esp_log.h"
 
 #include "imu_hal.h"
+#include "globals.h"
 
 static const char *TAG = "imu_detection";
 
@@ -100,7 +101,9 @@ static void set_state(security_state_t new_state)
     }
     ESP_LOGW(TAG, "state change: %s -> %s", state_name(g_imu_state), state_name(new_state));
     g_imu_state = new_state;
-    /* TODO: xTaskNotify(alarm_task) once the Alarm task exists (T4: <=100ms budget). */
+    /* TODO: imu_wake_up_security_task() once security_core_task_handle is
+     * actually assigned (T4: <=100ms budget) -- calling it now would notify
+     * a NULL handle, since Security Core doesn't exist/run yet. */
 }
 
 void imu_detection_task(void *arg)
@@ -119,11 +122,11 @@ void imu_detection_task(void *arg)
     bool was_armed = false;
 
     for (;;) {
-        if (!g_armed) {
-            /* Disarmed: idle instead of sampling. This polls the flag for
-             * now; a later version should block on a semaphore given by
-             * whichever task raises the arming event, instead of waking up
-             * on a timer just to check a bool. */
+        if (security_state == SECURITY_DISARMED) {
+            /* Disarmed: idle instead of sampling. Blocks here until
+             * something calls xTaskNotifyGive() on this task -- there's no
+             * such call anywhere yet (arming isn't wired up), so this will
+             * simply block indefinitely until that exists. */
             if (was_armed) {
                 ESP_LOGI(TAG, "disarmed, idling");
                 was_armed = false;
@@ -131,7 +134,7 @@ void imu_detection_task(void *arg)
             g_imu_state = SECURITY_STATE_QUIET;
             grace_samples = 0;
             quiet_samples = 0;
-            vTaskDelay(pdMS_TO_TICKS(200));
+            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
             continue;
         }
         if (!was_armed) {
@@ -174,13 +177,13 @@ void imu_detection_task(void *arg)
             sample_num = 0;
             printf("accel [g]: x=%.2f y=%.2f z=%.2f | mag=%.2f | over_trig=%2" PRIu32 "/100 "
                    "| gyro [dps]: x=%.1f y=%.1f z=%.1f | rate=%.1f | over_tilt=%2" PRIu32 "/100 "
-                   "| buckle_open=%d | state=%s\n",
+                   "| belt_state=%d | state=%s\n",
                    sample.accel_x_g, sample.accel_y_g, sample.accel_z_g, mag, over_trig,
                    sample.gyro_x_dps, sample.gyro_y_dps, sample.gyro_z_dps, gyro_rate_dps, over_tilt,
-                   g_buckle_open, state_name(g_imu_state));
+                   belt_state, state_name(g_imu_state));
         }
 
-        if (g_buckle_open) {
+        if (belt_state == BELT_OPEN) {
             /* Strap cut/unplugged (F1, F2): unmistakable, bypasses the grace
              * period and holds TIER3_ALARM for as long as the loop is open,
              * regardless of the motion/tilt state machine below. */
@@ -206,8 +209,8 @@ void imu_detection_task(void *arg)
             if (++grace_samples >= GRACE_PERIOD_SAMPLES) {
                 set_state(SECURITY_STATE_TIER3_ALARM);
             }
-            /* Disarm cancelling this grace period happens via the g_armed
-             * gate above, not a separate check here. */
+            /* Disarm cancelling this grace period happens via the
+             * security_state gate above, not a separate check here. */
             break;
 
         case SECURITY_STATE_TIER3_ALARM:

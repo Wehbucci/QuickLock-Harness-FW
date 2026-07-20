@@ -18,21 +18,15 @@ typedef enum {
 } security_state_t;
 
 /*
- * Cross-task shared state. Each variable has exactly one writer, so plain
- * `volatile` globals are used instead of a mutex -- single-word reads/writes
- * are atomic on the ESP32, and there's no multi-field consistency to
- * protect since each one stands alone.
- *
- * g_imu_state: written only by imu_detection_task, read by anyone.
- *
- * g_armed / g_buckle_open: read by imu_detection_task, but NOT written by
- * it. These are dummy placeholders defined in main for now -- g_armed will
- * eventually be written by the Security Core / BLE task, and g_buckle_open
- * by the Belt Detection task, neither of which exist yet.
+ * g_imu_state is this module's own detection-tier output -- a plain
+ * `volatile` global rather than a mutex-protected one, since it has exactly
+ * one writer (imu_detection_task) and single-word reads/writes are atomic
+ * on the ESP32. It's distinct from the system-wide `security_state`
+ * (enum SECURITY_STATE, in common/include/globals.h, owned by the Security
+ * Core task) that imu_detection_task reads to decide whether to sample at
+ * all -- reconciling the two is Security Core's job, not implemented yet.
  */
 extern volatile security_state_t g_imu_state;
-extern volatile bool g_armed;
-extern volatile bool g_buckle_open;
 
 /* FreeRTOS task entry point. Intended to run at priority 7 (highest) on
  * core 1, per Table 4. */
