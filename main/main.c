@@ -28,6 +28,8 @@
 #include "battery_status_task.h"
 #include "security_core_task.h"
 #include "belt_detection_task.h"
+#include "imu_hal.h"
+#include "imu_detection.h"
 
 #include "ble_events.h"
 #include "ble_security_bridge.h"
@@ -48,6 +50,10 @@ QL_LOG_TAG("main");
 #define ALARM_TASK_STACK          2048
 #define BATTERY_STATUS_TASK_STACK 2048
 #define SECURITY_CORE_TASK_STACK  3072
+/* Two 256-float ring buffers (2KB), I2C driver call depth, and printf/ESP_LOGW
+ * formatting several floats through newlib add up faster than expected; 4096
+ * overflowed under sustained load. */
+#define IMU_DETECTION_TASK_STACK  8192
 
 /* Priorities. SECURITY_CORE_TASK_PRIO must stay ABOVE
  * BLE_SECURITY_BRIDGE_PRIO (config.h) — see the bridge's concurrency note. */
@@ -55,6 +61,8 @@ QL_LOG_TAG("main");
 #define ALARM_TASK_PRIO           4
 #define BATTERY_STATUS_TASK_PRIO  1
 #define SECURITY_CORE_TASK_PRIO   5
+/* Highest priority, per Table 4. */
+#define IMU_DETECTION_TASK_PRIO   7
 
 void app_main(void)
 {
@@ -104,6 +112,17 @@ void app_main(void)
                             1);
 
     belt_detection_init();
+
+    /* IMU HAL + motion/tilt detection task (core 1, priority 7 — see Table 4). */
+    ESP_ERROR_CHECK(imu_hal_init());
+    xTaskCreatePinnedToCore(imu_detection_task,
+                            "imu_detection",
+                            IMU_DETECTION_TASK_STACK,
+                            NULL,
+                            IMU_DETECTION_TASK_PRIO,
+                            NULL,
+                            1);
+
     /* 3) Bring up NVS + the NimBLE host and configure LE Secure Connections +
      *    bonding + Just Works. The stack finishes syncing asynchronously; the
      *    BLE task waits for that before it scans. */

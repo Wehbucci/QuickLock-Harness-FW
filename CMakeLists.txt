@@ -8,6 +8,7 @@ cmake_minimum_required(VERSION 3.22)
 #
 #   ble             — the BLE communication subsystem (see CLAUDE.md)
 #   common          — globals.h: cross-task shared state, handles, notify helpers
+#   imu             — IMU HAL + motion/tilt detection task
 #   led/alarm/...   — one task per folder
 #
 # Components are referenced BY NAME in REQUIRES, not by path, so a component in
@@ -15,6 +16,7 @@ cmake_minimum_required(VERSION 3.22)
 set(EXTRA_COMPONENT_DIRS
     ble
     common
+    imu
     led
     alarm
     battery_status

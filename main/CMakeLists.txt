@@ -7,6 +7,7 @@ idf_component_register(SRCS "main.c"
                        REQUIRES freertos
                                 common
                                 ql_log
+                                imu
                                 led_task
                                 alarm_task
                                 battery_status_task

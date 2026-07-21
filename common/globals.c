@@ -20,6 +20,7 @@ enum SECURITY_STATE security_state = SECURITY_DISARMED;   /* Owned by Security C
 enum BATTERY_STATE  battery_state  = BATTERY_HIGH;        /* Owned by Battery Status Task  */
 enum BLE_COMMANDS   ble_command    = BLE_NO_COMMAND;      /* Owned by BLE Task             */
 enum BELT_STATE     belt_state     = BELT_UNKNOWN;        /* Owned by Belt Detection Task  */
+volatile enum IMU_STATE imu_state  = IMU_QUIET;           /* Owned by IMU Detection Task   */
 
 /* Notification bit constants. */
 const uint32_t ALARM_WAKE_BIT              = 1UL;
