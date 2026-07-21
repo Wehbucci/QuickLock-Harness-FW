@@ -82,25 +82,23 @@ static uint32_t ring_buffer_count_over(const mag_ring_buffer_t *rb, size_t windo
     return over;
 }
 
-volatile security_state_t g_imu_state = SECURITY_STATE_QUIET;
-
-static const char *state_name(security_state_t state)
+static const char *state_name(enum IMU_STATE state)
 {
     switch (state) {
-    case SECURITY_STATE_QUIET:       return "QUIET";
-    case SECURITY_STATE_TIER2_GRACE: return "TIER2_GRACE";
-    case SECURITY_STATE_TIER3_ALARM: return "TIER3_ALARM";
-    default:                         return "?";
+    case IMU_QUIET:       return "QUIET";
+    case IMU_TIER2_GRACE:  return "TIER2_GRACE";
+    case IMU_TIER3_ALARM:  return "TIER3_ALARM";
+    default:               return "?";
     }
 }
 
-static void set_state(security_state_t new_state)
+static void set_state(enum IMU_STATE new_state)
 {
-    if (new_state == g_imu_state) {
+    if (new_state == imu_state) {
         return;
     }
-    ESP_LOGW(TAG, "state change: %s -> %s", state_name(g_imu_state), state_name(new_state));
-    g_imu_state = new_state;
+    ESP_LOGW(TAG, "state change: %s -> %s", state_name(imu_state), state_name(new_state));
+    imu_state = new_state;
     /* TODO: imu_wake_up_security_task() once security_core_task_handle is
      * actually assigned (T4: <=100ms budget) -- calling it now would notify
      * a NULL handle, since Security Core doesn't exist/run yet. */
@@ -131,7 +129,7 @@ void imu_detection_task(void *arg)
                 ESP_LOGI(TAG, "disarmed, idling");
                 was_armed = false;
             }
-            g_imu_state = SECURITY_STATE_QUIET;
+            imu_state = IMU_QUIET;
             grace_samples = 0;
             quiet_samples = 0;
             ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
@@ -180,7 +178,7 @@ void imu_detection_task(void *arg)
                    "| belt_state=%d | state=%s\n",
                    sample.accel_x_g, sample.accel_y_g, sample.accel_z_g, mag, over_trig,
                    sample.gyro_x_dps, sample.gyro_y_dps, sample.gyro_z_dps, gyro_rate_dps, over_tilt,
-                   belt_state, state_name(g_imu_state));
+                   belt_state, state_name(imu_state));
         }
 
         if (belt_state == BELT_OPEN) {
@@ -188,36 +186,36 @@ void imu_detection_task(void *arg)
              * period and holds TIER3_ALARM for as long as the loop is open,
              * regardless of the motion/tilt state machine below. */
             quiet_samples = 0;
-            set_state(SECURITY_STATE_TIER3_ALARM);
+            set_state(IMU_TIER3_ALARM);
             continue;
         }
 
-        switch (g_imu_state) {
-        case SECURITY_STATE_QUIET:
+        switch (imu_state) {
+        case IMU_QUIET:
             if (over_trig >= TRIGGER_SAMPLE_COUNT) {
                 grace_samples = 0;
-                set_state(SECURITY_STATE_TIER2_GRACE); /* F3 met -> F10 chirp */
+                set_state(IMU_TIER2_GRACE); /* F3 met -> F10 chirp */
             } else if (tilt_trig) {
                 grace_samples = 0;
                 ESP_LOGW(TAG, "tilt trigger: %" PRIu32 "/100 samples over %.0f dps", over_tilt, TILT_RATE_THRESHOLD_DPS);
-                set_state(SECURITY_STATE_TIER2_GRACE); /* F8 -> F10 chirp */
+                set_state(IMU_TIER2_GRACE); /* F8 -> F10 chirp */
             }
             /* F5 carry-away (walking_for(5s)) intentionally not implemented yet. */
             break;
 
-        case SECURITY_STATE_TIER2_GRACE:
+        case IMU_TIER2_GRACE:
             if (++grace_samples >= GRACE_PERIOD_SAMPLES) {
-                set_state(SECURITY_STATE_TIER3_ALARM);
+                set_state(IMU_TIER3_ALARM);
             }
             /* Disarm cancelling this grace period happens via the
              * security_state gate above, not a separate check here. */
             break;
 
-        case SECURITY_STATE_TIER3_ALARM:
+        case IMU_TIER3_ALARM:
             if (over_still) {
                 quiet_samples = 0;
             } else if (++quiet_samples >= AUTO_SILENCE_SAMPLES) {
-                set_state(SECURITY_STATE_QUIET);
+                set_state(IMU_QUIET);
             }
             break;
         }

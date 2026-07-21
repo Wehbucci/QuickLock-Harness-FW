@@ -1,3 +1,5 @@
+.cache
+
 # macOS
 .DS_Store
 .AppleDouble
@@ -81,3 +83,5 @@ Desktop.ini
 .vscode/*
 !.vscode/launch.json
 !.vscode/extensions.json
+
+extras/
