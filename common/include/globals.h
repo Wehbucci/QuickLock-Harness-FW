@@ -43,10 +43,13 @@ enum BELT_STATE {
     BELT_UNKNOWN
 };
 
-enum IMU_STATE {
-    IMU_QUIET,
-    IMU_TIER2_GRACE,
-    IMU_TIER3_ALARM
+enum IMU_COMMANDS {
+    IMU_NO_COMMAND,
+    IMU_QUIET_TO_TIER2,
+    IMU_QUIET_TO_TIER3,
+    IMU_TIER2_MOVEMENT_SUSTAINED,
+    IMU_TIER2_TO_TIER3,
+    IMU_TIER3_MOVEMENT_DETECTED,
 };
 
 /* ------------------------------------------------------------------ */
@@ -55,6 +58,7 @@ enum IMU_STATE {
 
 extern TaskHandle_t led_task_handle;
 extern TaskHandle_t alarm_task_handle;
+extern TaskHandle_t imu_task_handle;
 extern TaskHandle_t battery_status_task_handle;
 extern TaskHandle_t security_core_task_handle;
 
@@ -66,6 +70,7 @@ extern enum SECURITY_STATE security_state;   /* Owned by Security Core Task   */
 extern enum BATTERY_STATE  battery_state;    /* Owned by Battery Status Task  */
 extern enum BLE_COMMANDS   ble_command;      /* Owned by BLE Task             */
 extern enum BELT_STATE     belt_state;       /* Owned by Belt Detection Task  */
+extern enum IMU_COMMANDS   imu_command;      /* Owned by IMU Task             */
 
 /*
  * imu_state is the IMU Detection task's own detection-tier output -- a plain
@@ -96,6 +101,7 @@ extern const uint32_t SECURITY_IMU_BIT;
 void request_chirp(void);
 void wake_up_alarm_task(void);
 void wake_up_led_task(void);
+void wake_up_imu_task(void);
 void ble_wake_up_security_task(void);
 void belt_detection_wake_up_security_task(void);
 void imu_wake_up_security_task(void);

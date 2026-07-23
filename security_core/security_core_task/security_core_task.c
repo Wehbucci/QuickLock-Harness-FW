@@ -37,7 +37,7 @@ static void security_arm(void)
     if (prev_security_state == SECURITY_DISARMED) {
         security_state = SECURITY_ARMED_QUIET;
         // TODO: Wake up Belt Detection task
-        // TODO: Wake up IMU task
+        wake_up_imu_task();
         request_chirp();
         wake_up_led_task();
     }
@@ -121,14 +121,7 @@ void security_core_task(void *arg)
 
         if (notification_value & SECURITY_BELT_DETECTION_BIT) {
             if (security_state == SECURITY_DISARMED) {
-                switch (belt_state) {
-                    case BELT_OPEN:
-                        break;
-                    case BELT_CLOSED:
-                        break;
-                    default:
-                        QL_LOGW("unknown belt_state %d while disarmed", (int)belt_state);
-                }
+                QL_LOGW("belt_state %d received while disarmed", (int)belt_state);
             } else if (security_state == SECURITY_ARMED_QUIET || security_state == SECURITY_ARMED_TIER2) {
                 switch (belt_state) {
                     case BELT_OPEN:
@@ -140,7 +133,82 @@ void security_core_task(void *arg)
                         QL_LOGW("unknown belt_state %d while armed", (int)belt_state);
                 }
             } else if (security_state == SECURITY_ARMED_TIER3) {
-                // Do nothing
+                switch (belt_state) {
+                    case BELT_OPEN:
+                        // TODO: Reset 20s timer (if belt just opened)
+                        // TODO: we may need to change the BELT->SC communication to command based instead of state based
+                        break;
+                    case BELT_CLOSED:
+                        break;
+                    default:
+                        QL_LOGW("unknown belt_state %d while armed in tier3", (int)belt_state);
+                }
+            }
+        }
+
+        if (notification_value & SECURITY_IMU_BIT) {
+            if (security_state == SECURITY_DISARMED) {
+                QL_LOGW("imu_command %d received while disarmed", (int)ble_command);
+            } else if (security_state == SECURITY_ARMED_QUIET) {
+                switch (imu_command) {
+                    case IMU_QUIET_TO_TIER2:
+                        security_tier2();
+                        break;
+                    case IMU_QUIET_TO_TIER3:
+                        security_tier3();
+                        break;
+                    case IMU_TIER2_TO_TIER3:
+                        QL_LOGI("ignoring imu_command %d received while armed and quiet", (int)ble_command);
+                        break;
+                    case IMU_TIER2_MOVEMENT_SUSTAINED:
+                        QL_LOGI("ignoring imu_command %d received while armed and quiet", (int)ble_command);
+                        break;
+                    case IMU_TIER3_MOVEMENT_DETECTED:
+                        QL_LOGI("ignoring imu_command %d received while armed and quiet", (int)ble_command);
+                        break;
+                    default:
+                        QL_LOGW("unknown imu_command %d while disarmed", (int)ble_command);
+                }
+            } else if (security_state == SECURITY_ARMED_TIER2) {
+                switch (imu_command) {
+                    case IMU_QUIET_TO_TIER2:
+                        QL_LOGI("ignoring imu_command %d received while armed in tier2", (int)ble_command);
+                        break;
+                    case IMU_QUIET_TO_TIER3:
+                        QL_LOGI("ignoring imu_command %d received while armed in tier2", (int)ble_command);
+                        break;
+                    case IMU_TIER2_TO_TIER3:
+                        security_tier3();
+                        break;
+                    case IMU_TIER2_MOVEMENT_SUSTAINED:
+                        // TODO: set flag so that at the end of 5s timer we go to QUIET state. Make sure this flag is unset when the timer is started.
+                        break;
+                    case IMU_TIER3_MOVEMENT_DETECTED:
+                        QL_LOGI("ignoring imu_command %d received while armed in tier2", (int)ble_command);
+                        break;
+                    default:
+                        QL_LOGW("unknown imu_command %d while armed in tier2", (int)ble_command);
+                }
+            } else if (security_state == SECURITY_ARMED_TIER3) {
+                switch (imu_command) {
+                    case IMU_QUIET_TO_TIER2:
+                        QL_LOGI("ignoring imu_command %d received while armed in tier3", (int)ble_command);
+                        break;
+                    case IMU_QUIET_TO_TIER3:
+                        QL_LOGI("ignoring imu_command %d received while armed in tier3", (int)ble_command);
+                        break;
+                    case IMU_TIER2_TO_TIER3:
+                        QL_LOGI("ignoring imu_command %d received while armed in tier3", (int)ble_command);
+                        break;
+                    case IMU_TIER2_MOVEMENT_SUSTAINED:
+                        QL_LOGI("ignoring imu_command %d received while armed in tier3", (int)ble_command);
+                        break;
+                    case IMU_TIER3_MOVEMENT_DETECTED:
+                        // TODO: Reset 20s timer
+                        break;
+                    default:
+                        QL_LOGW("unknown imu_command %d while armed in tier3", (int)ble_command);
+                }
             }
         }
     }

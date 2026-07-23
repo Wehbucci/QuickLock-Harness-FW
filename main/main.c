@@ -120,7 +120,7 @@ void app_main(void)
                             IMU_DETECTION_TASK_STACK,
                             NULL,
                             IMU_DETECTION_TASK_PRIO,
-                            NULL,
+                            &imu_task_handle,
                             1);
 
     /* 3) Bring up NVS + the NimBLE host and configure LE Secure Connections +

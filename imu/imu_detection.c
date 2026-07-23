@@ -99,9 +99,7 @@ static void set_state(enum IMU_STATE new_state)
     }
     ESP_LOGW(TAG, "state change: %s -> %s", state_name(imu_state), state_name(new_state));
     imu_state = new_state;
-    /* TODO: imu_wake_up_security_task() once security_core_task_handle is
-     * actually assigned (T4: <=100ms budget) -- calling it now would notify
-     * a NULL handle, since Security Core doesn't exist/run yet. */
+    imu_wake_up_security_task();
 }
 
 void imu_detection_task(void *arg)
