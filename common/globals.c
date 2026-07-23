@@ -29,6 +29,8 @@ const uint32_t ALARM_CHIRP_BIT             = 1UL << 1;
 const uint32_t SECURITY_BLE_BIT            = 1UL << 1;
 const uint32_t SECURITY_BELT_DETECTION_BIT = 1UL << 2;
 const uint32_t SECURITY_IMU_BIT            = 1UL << 3;
+const uint32_t SECURITY_GRACE_TIMER_BIT    = 1UL << 4;
+const uint32_t SECURITY_TIER3_TIMER_BIT    = 1UL << 5;
 
 /* Communication Functions. Should only be called from tasks designated to communicate with the target task. */
 void request_chirp(void)

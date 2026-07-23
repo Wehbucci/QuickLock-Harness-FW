@@ -91,6 +91,8 @@ extern const uint32_t ALARM_CHIRP_BIT;
 extern const uint32_t SECURITY_BLE_BIT;
 extern const uint32_t SECURITY_BELT_DETECTION_BIT;
 extern const uint32_t SECURITY_IMU_BIT;
+extern const uint32_t SECURITY_GRACE_TIMER_BIT;
+extern const uint32_t SECURITY_TIER3_TIMER_BIT;
 
 /* ------------------------------------------------------------------ */
 /* Global communication functions                                     */
