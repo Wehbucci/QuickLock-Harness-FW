@@ -72,15 +72,6 @@ extern enum BLE_COMMANDS   ble_command;      /* Owned by BLE Task             */
 extern enum BELT_STATE     belt_state;       /* Owned by Belt Detection Task  */
 extern enum IMU_COMMANDS   imu_command;      /* Owned by IMU Task             */
 
-/*
- * imu_state is the IMU Detection task's own detection-tier output -- a plain
- * `volatile` global rather than a mutex-protected one, since it has exactly
- * one writer (imu_detection_task) and single-word reads/writes are atomic on
- * the ESP32. It's distinct from `security_state` above (owned by Security
- * Core): imu_detection_task reads security_state to decide whether to sample
- * at all -- reconciling the two is Security Core's job, not implemented yet.
- */
-extern volatile enum IMU_STATE imu_state;    /* Owned by IMU Detection Task   */
 
 /* ------------------------------------------------------------------ */
 /* Notification bit constants                                         */
