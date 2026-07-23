@@ -47,6 +47,14 @@ static void security_disarm(void)
     if (prev_security_state == SECURITY_ARMED_QUIET || prev_security_state == SECURITY_ARMED_TIER2 || prev_security_state == SECURITY_ARMED_TIER3) {
         wake_up_led_task();
     }
+
+    /* Disarm cancels any pending tier escalation timers */
+    if (xTimerStop(xGracePeriodTimer, 0) != pdPASS) {
+        QL_LOGW("failed to stop grace period timer");
+    }
+    if (xTimerStop(xTier3Timer, 0) != pdPASS) {
+        QL_LOGW("failed to stop tier3 timer");
+    }
 }
 
 static void security_armed_quiet(void)
