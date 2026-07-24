@@ -25,7 +25,7 @@
  *   arm request on a failed check instead of arming anyway. This is the
  *   fail-secure behavior the harness should ship with.
  */
-#define DEBUG_MODE 0
+#define DEBUG_MODE 1
 
 /* -------------------------------------------------------------------------- */
 /* IMU init-failure behavior                                                  */
@@ -43,7 +43,7 @@
  *    harness (BLE, Security Core, etc.) still comes up. For bring-up work on
  *    another subsystem when the IMU isn't physically on the bus yet.
  */
-#define IMU_RESET_ON_INIT_FAILURE 1
+#define IMU_RESET_ON_INIT_FAILURE 0
 
 /* -------------------------------------------------------------------------- */
 /* IMU data print                                                              */
@@ -58,7 +58,7 @@
  * 1: print. 0: silent -- imu_detection_task's own logic is unaffected either
  *    way, this only gates the printf.
  */
-#define IMU_DATA_PRINT_ENABLED 1
+#define IMU_DATA_PRINT_ENABLED 0
 
 /* -------------------------------------------------------------------------- */
 /* Add other cross-subsystem constants here as they come up.                  */
