@@ -12,6 +12,7 @@
 /* Global task handles (populated by main.c at task-creation time). */
 TaskHandle_t led_task_handle;
 TaskHandle_t alarm_task_handle;
+TaskHandle_t imu_task_handle;
 TaskHandle_t battery_status_task_handle;
 TaskHandle_t security_core_task_handle;
 
@@ -20,7 +21,7 @@ enum SECURITY_STATE security_state = SECURITY_DISARMED;   /* Owned by Security C
 enum BATTERY_STATE  battery_state  = BATTERY_HIGH;        /* Owned by Battery Status Task  */
 enum BLE_COMMANDS   ble_command    = BLE_NO_COMMAND;      /* Owned by BLE Task             */
 enum BELT_STATE     belt_state     = BELT_UNKNOWN;        /* Owned by Belt Detection Task  */
-volatile enum IMU_STATE imu_state  = IMU_QUIET;           /* Owned by IMU Detection Task   */
+enum IMU_COMMANDS   imu_command    = IMU_NO_COMMAND;      /* Owned by IMU Detection Task   */
 
 /* Notification bit constants. */
 const uint32_t ALARM_WAKE_BIT              = 1UL;
@@ -28,6 +29,8 @@ const uint32_t ALARM_CHIRP_BIT             = 1UL << 1;
 const uint32_t SECURITY_BLE_BIT            = 1UL << 1;
 const uint32_t SECURITY_BELT_DETECTION_BIT = 1UL << 2;
 const uint32_t SECURITY_IMU_BIT            = 1UL << 3;
+const uint32_t SECURITY_GRACE_TIMER_BIT    = 1UL << 4;
+const uint32_t SECURITY_TIER3_TIMER_BIT    = 1UL << 5;
 
 /* Communication Functions. Should only be called from tasks designated to communicate with the target task. */
 void request_chirp(void)
@@ -43,6 +46,17 @@ void wake_up_alarm_task(void)
 void wake_up_led_task(void)
 {
     xTaskNotifyGive(led_task_handle);
+}
+
+void wake_up_imu_task(void)
+{
+    /* imu_task_handle is NULL if app_main skipped imu_detection_task
+     * (IMU_RESET_ON_INIT_FAILURE=0 in common_config.h and the sensor didn't
+     * answer at boot) -- xTaskNotifyGive on a NULL handle is undefined, so
+     * guard it rather than let a normal arm crash the harness. */
+    if (imu_task_handle != NULL) {
+        xTaskNotifyGive(imu_task_handle);
+    }
 }
 
 void ble_wake_up_security_task(void)

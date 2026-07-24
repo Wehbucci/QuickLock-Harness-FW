@@ -30,6 +30,7 @@
 #include "belt_detection_task.h"
 #include "imu_hal.h"
 #include "imu_detection.h"
+#include "common_config.h"
 
 #include "ble_events.h"
 #include "ble_security_bridge.h"

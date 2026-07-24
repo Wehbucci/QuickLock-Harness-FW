@@ -6,13 +6,35 @@
  */
 
 #include "security_core_task.h"
+#include "freertos/idf_additions.h"
+#include "freertos/projdefs.h"
 #include "globals.h"
 #include "ql_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "imu_hal.h"
+#include "common_config.h"
 #include <stdint.h>
 
 QL_LOG_TAG("security_core");
+
+/* Variables */
+bool tier2_movement_sustained = false;
+
+/* Timers Setup */
+static TimerHandle_t xGracePeriodTimer;
+static TimerHandle_t xTier3Timer;
+
+static void vGraceTimerCallback(TimerHandle_t xTimer)
+{
+    xTaskNotify(security_core_task_handle, SECURITY_GRACE_TIMER_BIT, eSetBits);
+}
+
+static void vTier3TimerCallback(TimerHandle_t xTimer)
+{
+    xTaskNotify(security_core_task_handle, SECURITY_TIER3_TIMER_BIT, eSetBits);
+}
+
 
 /* Private Security Core Functions */
 static void security_disarm(void)
@@ -27,21 +49,29 @@ static void security_disarm(void)
     if (prev_security_state == SECURITY_ARMED_QUIET || prev_security_state == SECURITY_ARMED_TIER2 || prev_security_state == SECURITY_ARMED_TIER3) {
         wake_up_led_task();
     }
+
+    /* Disarm cancels any pending tier escalation timers */
+    if (xTimerStop(xGracePeriodTimer, 0) != pdPASS) {
+        QL_LOGW("failed to stop grace period timer");
+    }
+    if (xTimerStop(xTier3Timer, 0) != pdPASS) {
+        QL_LOGW("failed to stop tier3 timer");
+    }
 }
 
-static void security_arm(void)
+static void security_armed_quiet(void)
 {
     enum SECURITY_STATE prev_security_state = security_state;
+    security_state = SECURITY_ARMED_QUIET;
 
-    /* Only move to armed quiet state if not already armed (do not silence an active alarm) */
     if (prev_security_state == SECURITY_DISARMED) {
-        security_state = SECURITY_ARMED_QUIET;
         // TODO: Wake up Belt Detection task
-        // TODO: Wake up IMU task
+        wake_up_imu_task();
         request_chirp();
         wake_up_led_task();
     }
 
+    wake_up_alarm_task();
 }
 
 static void security_tier2(void)
@@ -54,6 +84,12 @@ static void security_tier2(void)
     } else if (prev_security_state == SECURITY_ARMED_QUIET || prev_security_state == SECURITY_ARMED_TIER3) {
         wake_up_alarm_task();
     }
+
+    /* Unconditional Timer Reset */
+    if (xTimerReset(xGracePeriodTimer, 0) != pdPASS) {
+        QL_LOGW("failed to reset grace period timer");
+    }
+    tier2_movement_sustained = false;
 }
 
 static void security_tier3(void)
@@ -66,21 +102,67 @@ static void security_tier3(void)
     } else if (prev_security_state == SECURITY_ARMED_QUIET || prev_security_state == SECURITY_ARMED_TIER2) {
         wake_up_alarm_task();
     }
+
+    /* Unconditional Timer Reset */
+    if (xTimerReset(xTier3Timer, 0) != pdPASS) {
+        QL_LOGW("failed to reset tier3 timer");
+    }
 }
 
-static void arm_test(void)
+/* Pre-arm health check. Returns true if arming should proceed.
+ *
+ * DEBUG_MODE (common/include/debug_config.h) controls what a failed check
+ * does: in debug mode it's logged only and arming proceeds anyway (useful on
+ * the bench with a known-flaky/disconnected sensor); in production mode a
+ * failure blocks the arm request outright (fail-secure). */
+static bool arm_test(void)
 {
-    // TODO
+    bool imu_ok = imu_hal_self_test();
+    // TODO: check other subsystems (belt detection, battery, BLE link)
+    bool all_ok = imu_ok;
+
+    if (!all_ok) {
+#if DEBUG_MODE
+        QL_LOGW("IMU self-test failed; arming anyway (DEBUG_MODE=1, degraded motion detection)");
+#else
+        QL_LOGE("IMU self-test failed; refusing to arm (DEBUG_MODE=0)");
+#endif
+    }
+
+#if DEBUG_MODE
+    return true;
+#else
+    return all_ok;
+#endif
 }
 
 void security_core_task(void *arg)
 {
     QL_LOGI("task started on core %d", xPortGetCoreID());
 
-    /* Notification Bits */
-    /* Bits 31-4 | Bit 3 | Bit 2          | Bit 1 | Bit 0           */
-    /* Unused    | IMU   | Belt Detection | BLE   | General wake up */
+    /* Timer Setup */
+    xGracePeriodTimer = xTimerCreate(
+        "Grace",                 // name (debug only)
+        pdMS_TO_TICKS(5000),     // period
+        pdFALSE,                 // pdFALSE = one-shot, pdTRUE = auto-reload
+        (void *)0,               // timer ID — stash context here if you want
+        vGraceTimerCallback);
 
+    configASSERT(xGracePeriodTimer != NULL);
+
+    xTier3Timer = xTimerCreate(
+        "Grace",                 // name (debug only)
+        pdMS_TO_TICKS(20000),     // period
+        pdFALSE,                 // pdFALSE = one-shot, pdTRUE = auto-reload
+        (void *)0,               // timer ID — stash context here if you want
+        vTier3TimerCallback);
+
+    configASSERT(xTier3Timer != NULL);
+
+
+    /* Notification Bits */
+    /* Bits 31-6 | Bit 5        | Bit 4              | Bit 3 | Bit 2          | Bit 1 | Bit 0           */
+    /* Unused    | Tier3 Timer  | Grace Period Timer | IMU   | Belt Detection | BLE   | General wake up */
 
     uint32_t notification_value;
     while (1) {
@@ -88,6 +170,12 @@ void security_core_task(void *arg)
         xTaskNotifyWait(0, 0xFFFFFFFF, &notification_value, portMAX_DELAY);
         QL_LOGI("woke up; notification=0x%08x", (unsigned)notification_value);
 
+        /* General Wake Up */
+        if (notification_value & 1UL) {
+            QL_LOGW("unhandled general wake up notification");
+        }
+
+        /* BLE Command */
         if (notification_value & SECURITY_BLE_BIT) {
             if (security_state == SECURITY_ARMED_QUIET || security_state == SECURITY_ARMED_TIER2 || security_state == SECURITY_ARMED_TIER3) {
                 switch (ble_command) {
@@ -104,14 +192,20 @@ void security_core_task(void *arg)
             } else if (security_state == SECURITY_DISARMED) {
                 switch (ble_command) {
                     case BLE_ARM:
-                        arm_test();
-                        security_arm();
+                        if (arm_test()) {
+                            security_armed_quiet();
+                        } else {
+                            QL_LOGE("arm refused: pre-arm health check failed");
+                        }
                         break;
                     case BLE_DISARM:
                         break;
                     case BLE_OOR:
-                        arm_test();
-                        security_arm();
+                        if (arm_test()) {
+                            security_armed_quiet();
+                        } else {
+                            QL_LOGE("arm refused (OOR): pre-arm health check failed");
+                        }
                         break;
                     default:
                         QL_LOGW("unknown ble_command %d while disarmed", (int)ble_command);
@@ -119,16 +213,11 @@ void security_core_task(void *arg)
             }
         }
 
+        /* Belt Detection Command */
+        // TODO: we may need to change the BELT->SC communication to command based instead of state based
         if (notification_value & SECURITY_BELT_DETECTION_BIT) {
             if (security_state == SECURITY_DISARMED) {
-                switch (belt_state) {
-                    case BELT_OPEN:
-                        break;
-                    case BELT_CLOSED:
-                        break;
-                    default:
-                        QL_LOGW("unknown belt_state %d while disarmed", (int)belt_state);
-                }
+                QL_LOGW("belt_state %d received while disarmed", (int)belt_state);
             } else if (security_state == SECURITY_ARMED_QUIET || security_state == SECURITY_ARMED_TIER2) {
                 switch (belt_state) {
                     case BELT_OPEN:
@@ -140,7 +229,106 @@ void security_core_task(void *arg)
                         QL_LOGW("unknown belt_state %d while armed", (int)belt_state);
                 }
             } else if (security_state == SECURITY_ARMED_TIER3) {
-                // Do nothing
+                switch (belt_state) {
+                    case BELT_OPEN:
+                        security_tier3();
+                        break;
+                    case BELT_CLOSED:
+                        break;
+                    default:
+                        QL_LOGW("unknown belt_state %d while armed in tier3", (int)belt_state);
+                }
+            }
+        }
+
+        /* IMU Command */
+        if (notification_value & SECURITY_IMU_BIT) {
+            if (security_state == SECURITY_DISARMED) {
+                QL_LOGW("imu_command %d received while disarmed", (int)ble_command);
+            } else if (security_state == SECURITY_ARMED_QUIET) {
+                switch (imu_command) {
+                    case IMU_QUIET_TO_TIER2:
+                        security_tier2();
+                        break;
+                    case IMU_QUIET_TO_TIER3:
+                        security_tier3();
+                        break;
+                    case IMU_TIER2_TO_TIER3:
+                        QL_LOGI("ignoring imu_command %d received while armed and quiet", (int)ble_command);
+                        break;
+                    case IMU_TIER2_MOVEMENT_SUSTAINED:
+                        QL_LOGI("ignoring imu_command %d received while armed and quiet", (int)ble_command);
+                        break;
+                    case IMU_TIER3_MOVEMENT_DETECTED:
+                        QL_LOGI("ignoring imu_command %d received while armed and quiet", (int)ble_command);
+                        break;
+                    default:
+                        QL_LOGW("unknown imu_command %d while disarmed", (int)ble_command);
+                }
+            } else if (security_state == SECURITY_ARMED_TIER2) {
+                switch (imu_command) {
+                    case IMU_QUIET_TO_TIER2:
+                        QL_LOGI("ignoring imu_command %d received while armed in tier2", (int)ble_command);
+                        break;
+                    case IMU_QUIET_TO_TIER3:
+                        QL_LOGI("ignoring imu_command %d received while armed in tier2", (int)ble_command);
+                        break;
+                    case IMU_TIER2_TO_TIER3:
+                        security_tier3();
+                        break;
+                    case IMU_TIER2_MOVEMENT_SUSTAINED:
+                        tier2_movement_sustained = true;
+                        break;
+                    case IMU_TIER3_MOVEMENT_DETECTED:
+                        QL_LOGI("ignoring imu_command %d received while armed in tier2", (int)ble_command);
+                        break;
+                    default:
+                        QL_LOGW("unknown imu_command %d while armed in tier2", (int)ble_command);
+                }
+            } else if (security_state == SECURITY_ARMED_TIER3) {
+                switch (imu_command) {
+                    case IMU_QUIET_TO_TIER2:
+                        QL_LOGI("ignoring imu_command %d received while armed in tier3", (int)ble_command);
+                        break;
+                    case IMU_QUIET_TO_TIER3:
+                        QL_LOGI("ignoring imu_command %d received while armed in tier3", (int)ble_command);
+                        break;
+                    case IMU_TIER2_TO_TIER3:
+                        QL_LOGI("ignoring imu_command %d received while armed in tier3", (int)ble_command);
+                        break;
+                    case IMU_TIER2_MOVEMENT_SUSTAINED:
+                        QL_LOGI("ignoring imu_command %d received while armed in tier3", (int)ble_command);
+                        break;
+                    case IMU_TIER3_MOVEMENT_DETECTED:
+                        security_tier3();
+                        break;
+                    default:
+                        QL_LOGW("unknown imu_command %d while armed in tier3", (int)ble_command);
+                }
+            }
+        }
+
+        /* Grace Timer Elapsed */
+        if (notification_value & SECURITY_GRACE_TIMER_BIT) {
+            if (security_state == SECURITY_DISARMED || security_state == SECURITY_ARMED_QUIET || security_state == SECURITY_ARMED_TIER3) {
+                QL_LOGD("grace timer elapsed; ignored in state %d", (int)security_state);
+            } else if (security_state == SECURITY_ARMED_TIER2) {
+                QL_LOGD("grace timer elapsed in tier2; tier2_movement_sustained=%d", (int)tier2_movement_sustained);
+                if (tier2_movement_sustained) {
+                    security_tier3();
+                } else {
+                    security_armed_quiet();
+                }
+            }
+        }
+
+        /* Tier3 Timer Elapsed */
+        if (notification_value & SECURITY_TIER3_TIMER_BIT) {
+            if (security_state == SECURITY_DISARMED || security_state == SECURITY_ARMED_QUIET || security_state == SECURITY_ARMED_TIER2) {
+                QL_LOGD("tier3 timer elapsed; ignored in state %d", (int)security_state);
+            } else if (security_state == SECURITY_ARMED_TIER3) {
+                QL_LOGD("tier3 timer elapsed in tier3; returning to armed quiet");
+                security_armed_quiet();
             }
         }
     }

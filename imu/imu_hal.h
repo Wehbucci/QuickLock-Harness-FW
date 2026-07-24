@@ -39,6 +39,18 @@ bool imu_hal_wait_for_data_ready(TickType_t timeout_ticks);
 /* Burst-reads accel + gyro + temp and converts to physical units. */
 esp_err_t imu_hal_read(imu_data_t *out);
 
+/*
+ * Liveness + readiness check for the pre-arm health check (arm_test() in
+ * security_core_task.c): re-reads WHO_AM_I over I2C to confirm the MPU-6050
+ * is still responding, then re-applies the wake/configure register sequence
+ * so a chip that lost power since imu_hal_init() (unplugged, not just an I2C
+ * hiccup) comes back sampling instead of silently asleep. Returns false only
+ * on an I2C transaction failure -- an unexpected WHO_AM_I value is logged
+ * but not treated as failure, same as imu_hal_init(), since some GY-521
+ * clones report a non-datasheet value.
+ */
+bool imu_hal_self_test(void);
+
 #ifdef __cplusplus
 }
 #endif
