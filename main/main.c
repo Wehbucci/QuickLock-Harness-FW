@@ -114,14 +114,24 @@ void app_main(void)
     belt_detection_init();
 
     /* IMU HAL + motion/tilt detection task (core 1, priority 7 — see Table 4). */
-    ESP_ERROR_CHECK(imu_hal_init());
-    xTaskCreatePinnedToCore(imu_detection_task,
-                            "imu_detection",
-                            IMU_DETECTION_TASK_STACK,
-                            NULL,
-                            IMU_DETECTION_TASK_PRIO,
-                            NULL,
-                            1);
+    /* TEMP (BLE bring-up): IMU not physically connected. Don't let a missing
+     * MPU6050 abort() the whole boot via ESP_ERROR_CHECK — log and skip the
+     * detection task so BLE still comes up. REVERT to
+     * `ESP_ERROR_CHECK(imu_hal_init());` before the IMU is on the bus. */
+    esp_err_t imu_err = imu_hal_init();
+    if (imu_err != ESP_OK) {
+        QL_LOGE("TEMP: imu_hal_init() failed (%s) — IMU not connected; "
+                "skipping imu_detection_task so BLE can be tested",
+                esp_err_to_name(imu_err));
+    } else {
+        xTaskCreatePinnedToCore(imu_detection_task,
+                                "imu_detection",
+                                IMU_DETECTION_TASK_STACK,
+                                NULL,
+                                IMU_DETECTION_TASK_PRIO,
+                                NULL,
+                                1);
+    }
 
     /* 3) Bring up NVS + the NimBLE host and configure LE Secure Connections +
      *    bonding + Just Works. The stack finishes syncing asynchronously; the
