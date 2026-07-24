@@ -28,5 +28,23 @@
 #define DEBUG_MODE 0
 
 /* -------------------------------------------------------------------------- */
+/* IMU init-failure behavior                                                  */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * Controls what app_main does if imu_hal_init() fails at boot (e.g. the
+ * MPU6050 isn't wired up yet).
+ *
+ * 1: force a reset -- ESP_ERROR_CHECK(imu_hal_init()) aborts the boot, same
+ *    as every other ESP_ERROR_CHECK'd bring-up step. This is what the
+ *    harness should ship with: a missing safety-critical sensor should not
+ *    silently boot into a degraded state.
+ * 0: log the failure and skip creating imu_detection_task so the rest of the
+ *    harness (BLE, Security Core, etc.) still comes up. For bring-up work on
+ *    another subsystem when the IMU isn't physically on the bus yet.
+ */
+#define IMU_RESET_ON_INIT_FAILURE 1
+
+/* -------------------------------------------------------------------------- */
 /* Add other cross-subsystem constants here as they come up.                  */
 /* -------------------------------------------------------------------------- */

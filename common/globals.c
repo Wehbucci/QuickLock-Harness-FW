@@ -50,7 +50,13 @@ void wake_up_led_task(void)
 
 void wake_up_imu_task(void)
 {
-    xTaskNotifyGive(imu_task_handle);
+    /* imu_task_handle is NULL if app_main skipped imu_detection_task
+     * (IMU_RESET_ON_INIT_FAILURE=0 in common_config.h and the sensor didn't
+     * answer at boot) -- xTaskNotifyGive on a NULL handle is undefined, so
+     * guard it rather than let a normal arm crash the harness. */
+    if (imu_task_handle != NULL) {
+        xTaskNotifyGive(imu_task_handle);
+    }
 }
 
 void ble_wake_up_security_task(void)
