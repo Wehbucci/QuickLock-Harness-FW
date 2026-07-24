@@ -1,6 +1,8 @@
 /*
  * Motion-based theft detection state machine (Section 3.3.3). Consumes
- * imu_hal.h, produces a security state.
+ * imu_hal.h (raw samples) via imu_ring_buffer.h (windowed motion trigger),
+ * imu_tilt_filter.h (fused tilt angle), and imu_walk_detector.h (rhythmic
+ * gait / walk-away, F5), and produces a security state.
  */
 
 #pragma once
