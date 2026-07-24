@@ -46,5 +46,20 @@
 #define IMU_RESET_ON_INIT_FAILURE 1
 
 /* -------------------------------------------------------------------------- */
+/* IMU data print                                                              */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * Gates the 10 Hz accel/gyro/trigger-count printf in imu_detection_task
+ * (imu/imu_detection.c). It's the only way to see live sensor values on the
+ * bench without a logic analyzer, but at 10 lines/second it also floods the
+ * console and fights with the ql_console prompt.
+ *
+ * 1: print. 0: silent -- imu_detection_task's own logic is unaffected either
+ *    way, this only gates the printf.
+ */
+#define IMU_DATA_PRINT_ENABLED 1
+
+/* -------------------------------------------------------------------------- */
 /* Add other cross-subsystem constants here as they come up.                  */
 /* -------------------------------------------------------------------------- */

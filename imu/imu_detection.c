@@ -11,6 +11,7 @@
 
 #include "imu_hal.h"
 #include "globals.h"
+#include "common_config.h"
 
 static const char *TAG = "imu_detection";
 
@@ -174,12 +175,14 @@ void imu_detection_task(void *arg)
 
         if (++sample_num >= PRINT_EVERY_N_SAMPLES) {
             sample_num = 0;
+#if IMU_DATA_PRINT_ENABLED
             printf("accel [g]: x=%.2f y=%.2f z=%.2f | mag=%.2f | over_trig=%2" PRIu32 "/100 "
                    "| gyro [dps]: x=%.1f y=%.1f z=%.1f | rate=%.1f | over_tilt=%2" PRIu32 "/100 "
                    "| security_state=%d\n",
                    sample.accel_x_g, sample.accel_y_g, sample.accel_z_g, mag, over_trig,
                    sample.gyro_x_dps, sample.gyro_y_dps, sample.gyro_z_dps, gyro_rate_dps, over_tilt,
                    (int)state);
+#endif
         }
 
         switch (state) {
