@@ -23,11 +23,16 @@
 /* Tuning constants for the model + filter. Values come from config.h at the
  * call site; kept as a struct so tests can inject their own without config.h. */
 typedef struct {
-    float c_dbm;             /* RSSI at reference distance d0 = 1 m */
-    float n;                 /* path-loss exponent */
-    float alpha;             /* EMA weight on the newest raw sample, 0..1 */
-    float out_threshold_dbm; /* filtered RSSI below this -> out of range */
-    float in_threshold_dbm;  /* filtered RSSI above this -> back in range */
+    float    c_dbm;             /* RSSI at reference distance d0 = 1 m */
+    float    n;                 /* path-loss exponent */
+    float    alpha;             /* EMA weight on the newest raw sample, 0..1 */
+    float    out_threshold_dbm; /* filtered RSSI below this -> candidate out of range */
+    float    in_threshold_dbm;  /* filtered RSSI above this -> back in range */
+    uint32_t out_confirm_ms;    /* filtered RSSI must stay below out_threshold_dbm
+                                 * CONTINUOUSLY for this long before out-of-range is
+                                 * DECLARED. Debounces transient RSSI misreads so a
+                                 * momentary dip cannot auto-arm (F14). 0 = declare
+                                 * immediately on crossing (legacy behaviour). */
 } proximity_config_t;
 
 /* Edge reported by proximity_evaluate(): only the transitions, not the level. */
@@ -40,9 +45,11 @@ typedef enum {
 /* Filter/decision state. Treat as opaque; use the functions below. */
 typedef struct {
     proximity_config_t cfg;
-    float filt;        /* current filtered RSSI (EMA output), dBm */
-    bool  seeded;      /* false until the first sample seeds the EMA */
-    bool  out_of_range;/* current hysteresis state */
+    float    filt;         /* current filtered RSSI (EMA output), dBm */
+    bool     seeded;       /* false until the first sample seeds the EMA */
+    bool     out_of_range; /* current latched decision */
+    bool     out_pending;  /* filtered RSSI is below out_threshold and being timed */
+    uint32_t out_since_ms; /* timestamp the current candidate-out dip began */
 } proximity_t;
 
 /*
@@ -65,12 +72,25 @@ void proximity_init(proximity_t *p, const proximity_config_t *cfg);
 float proximity_update(proximity_t *p, int8_t raw_rssi);
 
 /*
- * proximity_evaluate — apply hysteresis to the current filtered RSSI and report
- * any in/out edge. Call once per sample, after proximity_update().
- * Returns: PROX_WENT_OUT / PROX_CAME_IN on a boundary crossing, else
- *          PROX_NO_CHANGE. Side effects: updates the latched out_of_range state.
+ * proximity_evaluate — apply hysteresis + the out-of-range dwell to the current
+ * filtered RSSI and report any in/out edge. Call once per sample, after
+ * proximity_update().
+ *
+ * Param now_ms: a monotonic millisecond timestamp (any epoch; only differences
+ *               are used, and the difference is computed rollover-safe). Needed
+ *               so the out_confirm_ms dwell is measured in real time rather than
+ *               in sample counts, which keeps it correct if the sample cadence
+ *               changes.
+ * Returns: PROX_WENT_OUT only after the filtered RSSI has stayed below
+ *          out_threshold for out_confirm_ms CONTINUOUSLY; PROX_CAME_IN
+ *          immediately on crossing back above in_threshold; else PROX_NO_CHANGE.
+ * Side effects: updates the latched out_of_range state and the dwell timer.
+ *
+ * Note: coming back in range is deliberately NOT dwell-debounced — recovery
+ * should be prompt, and a brief dip that started the timer is simply cancelled
+ * the moment the filtered value climbs back above out_threshold.
  */
-proximity_event_t proximity_evaluate(proximity_t *p);
+proximity_event_t proximity_evaluate(proximity_t *p, uint32_t now_ms);
 
 /* Current latched decision (true == out of range). No side effects. */
 bool proximity_is_out_of_range(const proximity_t *p);
