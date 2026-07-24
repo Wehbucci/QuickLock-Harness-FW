@@ -38,14 +38,43 @@
 /* Bench-calibration constants. All consumed by the pure proximity module.     */
 /* -------------------------------------------------------------------------- */
 
-#define RSSI_C_DBM (-60.0f) /* measured RSSI at d0 = 1 m */
-#define RSSI_N     (2.0f)   /* path-loss exponent */
+/* PROVISIONAL calibration from sample_data/rssi_calibration_all.csv (2026-07-22),
+ * fitted by sample_data/analyze_rssi.py excluding the 1.5 m point (a multipath
+ * null, sigma 5.7 dB). Least-squares over the remaining points: R2 = 0.92.
+ *
+ * !! MEASURED AGAINST A COMPROMISED LINK. The whole sweep sat ~25-33 dB below
+ * free-space theory (1 m read -77 dBm, not the expected -45 to -55), so N came
+ * out at 1.32 -- below free space, physically implausible -- and beyond ~6 m
+ * the readings are within noise of each other. Re-calibrate after the antenna
+ * placement / TX-power fix (fob TX is only -4 dBm; harness sets no TX power at
+ * all). These values make the harness usable now; they are NOT the final ones. */
+#define RSSI_C_DBM (-76.2f) /* fitted RSSI at d0 = 1 m (direct 1 m mean was -77.0) */
+#define RSSI_N     (1.32f)  /* fitted path-loss exponent (implausibly low; see above) */
 #define RSSI_ALPHA (0.15f)  /* first-order EMA weight on the newest raw sample */
 
 /* Hysteresis band (dBm on the FILTERED RSSI) to stop chatter at the boundary.
- * With C=-60, n=2, ~5 m separation lands near -74 dBm. */
-#define OUT_THRESHOLD_DBM (-74.0f) /* below -> out of range */
-#define IN_THRESHOLD_DBM  (-70.0f) /* above -> back in range */
+ * Set from measured means, NOT by inverting the model above. With this data the
+ * only clean split is near/far: means were ~-80 dBm at 3 m and ~-86 at 4.5 m,
+ * so OUT=-84 reliably declares out-of-range beyond ~4 m while staying in-range
+ * at <=3 m; IN=-80 requires closing back to ~3 m to re-enter. The 4 dB gap is
+ * comfortably wider than the ~1.5 dB filtered noise, so it will not chatter.
+ *
+ * !! EFFECTIVE TRIGGER IS ~3-4 m, NOT the 10 m target: with this data 9/10.5/12 m
+ * are statistically indistinguishable, so no threshold can trigger at 10 m.
+ * Revisit together with RSSI_C_DBM/RSSI_N after the RF fix. */
+#define OUT_THRESHOLD_DBM (-84.0f) /* below -> candidate out of range (~beyond 4 m here) */
+#define IN_THRESHOLD_DBM  (-80.0f) /* above -> back in range (~within 3 m here) */
+
+/* Out-of-range DWELL: the filtered RSSI must stay below OUT_THRESHOLD_DBM
+ * continuously for this long before the harness declares the fob out of range
+ * (Mechanism B). A single misread or a short run of bad samples resets the
+ * timer, so a transient dip can no longer auto-arm the system.
+ *
+ * F14 note: this only slows the SOFT RSSI trigger. Genuine departure still trips
+ * the hard supervision-timeout path (Mechanism A: SUPERVISION_MS + REACQUIRE_
+ * GRACE_MS = 7 s) well inside F14's 10 s, so fail-secure is not weakened.
+ * At the ~1 Hz RSSI cadence this is ~10 consecutive out-of-range samples. */
+#define OUT_CONFIRM_MS 10000
 
 /* How often the harness samples connected-link RSSI (~1 Hz by nature). */
 #define RSSI_SAMPLE_MS 1000

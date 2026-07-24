@@ -322,6 +322,7 @@ static void handle_event(const ble_inbound_msg_t *msg)
                 .c_dbm = RSSI_C_DBM, .n = RSSI_N, .alpha = RSSI_ALPHA,
                 .out_threshold_dbm = OUT_THRESHOLD_DBM,
                 .in_threshold_dbm = IN_THRESHOLD_DBM,
+                .out_confirm_ms = OUT_CONFIRM_MS,
             };
             proximity_init(&s_prox, &pcfg);
         }
@@ -451,10 +452,10 @@ static void housekeeping_tick(void)
         QL_LOGI("RSSI raw=%d dBm filt=%.1f dBm (~%.1f m)",
                 raw, filt, proximity_distance_m(&s_prox, filt));
 
-        switch (proximity_evaluate(&s_prox)) {
+        switch (proximity_evaluate(&s_prox, (uint32_t)now_ms())) {
         case PROX_WENT_OUT:
-            QL_LOGW("filtered RSSI crossed OUT threshold (%.0f dBm)",
-                    (double)OUT_THRESHOLD_DBM);
+            QL_LOGW("filtered RSSI held below OUT threshold (%.0f dBm) for %d ms "
+                    "-> out of range", (double)OUT_THRESHOLD_DBM, OUT_CONFIRM_MS);
             ble_events_post(BLE_EVT_FOB_OUT_OF_RANGE, (int32_t)filt);
             break;
         case PROX_CAME_IN:

@@ -27,6 +27,8 @@ void proximity_init(proximity_t *p, const proximity_config_t *cfg)
     /* Start life IN range: on boot the fob is next to the harness, and we do not
      * want a spurious out-of-range before the first real sample lands. */
     p->out_of_range = false;
+    p->out_pending = false;
+    p->out_since_ms = 0;
 }
 
 float proximity_update(proximity_t *p, int8_t raw_rssi)
@@ -46,21 +48,45 @@ float proximity_update(proximity_t *p, int8_t raw_rssi)
     return p->filt;
 }
 
-proximity_event_t proximity_evaluate(proximity_t *p)
+proximity_event_t proximity_evaluate(proximity_t *p, uint32_t now_ms)
 {
     if (!p->seeded) {
         return PROX_NO_CHANGE; /* nothing to decide until we have a sample */
     }
 
-    /* Hysteresis: two thresholds with a dead band between them. We only flip a
-     * decision when the filtered RSSI crosses the FAR threshold in the relevant
-     * direction, so noise inside the band cannot cause chatter. */
-    if (!p->out_of_range && p->filt < p->cfg.out_threshold_dbm) {
-        p->out_of_range = true;
-        return PROX_WENT_OUT;
+    /* Hysteresis: two thresholds with a dead band between them, so noise inside
+     * the band cannot cause chatter. On top of that, the OUT direction is
+     * dwell-debounced: the filtered RSSI must stay below out_threshold for
+     * out_confirm_ms CONTINUOUSLY before we declare out-of-range. This is what
+     * stops a transient misread from auto-arming the system (F14). The genuine
+     * "walked away" case is still caught quickly by the supervision-timeout path
+     * (Mechanism A in ble_task.c), so this dwell does not weaken fail-secure. */
+    if (!p->out_of_range) {
+        if (p->filt < p->cfg.out_threshold_dbm) {
+            /* Candidate out-of-range. Start the dwell timer on the first dip, or
+             * check whether it has now been held long enough. */
+            if (!p->out_pending) {
+                p->out_pending = true;
+                p->out_since_ms = now_ms;
+            }
+            /* Unsigned subtraction is wrap-safe across the ~49-day now_ms rollover. */
+            if ((uint32_t)(now_ms - p->out_since_ms) >= p->cfg.out_confirm_ms) {
+                p->out_pending = false;
+                p->out_of_range = true;
+                return PROX_WENT_OUT;
+            }
+        } else {
+            /* Climbed back above out_threshold before the dwell elapsed: the dip
+             * was transient, so cancel the pending timer. Next dip starts fresh. */
+            p->out_pending = false;
+        }
+        return PROX_NO_CHANGE;
     }
-    if (p->out_of_range && p->filt > p->cfg.in_threshold_dbm) {
+
+    /* Currently out of range: recovery is prompt (no dwell). */
+    if (p->filt > p->cfg.in_threshold_dbm) {
         p->out_of_range = false;
+        p->out_pending = false;
         return PROX_CAME_IN;
     }
     return PROX_NO_CHANGE;
