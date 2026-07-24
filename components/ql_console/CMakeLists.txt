@@ -10,7 +10,7 @@
 #   PRIV_REQUIRES — impl-only: the two modules the commands drive, plus the
 #                   header-only helpers. NimBLE is NOT here and must not be:
 #                   the console reaches the radio only through ble_hal.
-idf_component_register(SRCS "ql_console.c"
+idf_component_register(SRCS "ql_console_bench_hooks.c" "ql_console.c"
                        INCLUDE_DIRS "include"
                        REQUIRES console
-                       PRIV_REQUIRES ble_hal ble_task config ql_log)
+                       PRIV_REQUIRES ble_hal ble_task config ql_log common)

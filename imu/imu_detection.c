@@ -43,6 +43,12 @@ static const char *TAG = "imu_detection";
 #define TILT_RATE_THRESHOLD_DPS  20.0f  /* instantaneous angular rate trigger level */
 #define TILT_SAMPLE_COUNT        70     /* >=70/100 samples over threshold */
 
+/* Tier2 requires motion_trig to hold for a continuous 2 s before it's
+ * reported as sustained, not just re-observed once. A thief who bumps the
+ * unit and then lets go breaks this run before it completes, so the grace
+ * timer lapses back to ARMED_QUIET instead of escalating to tier3. */
+#define TIER2_SUSTAIN_CONFIRM_SAMPLES  (2 * 100)  /* 2 s of unbroken motion_trig */
+
 #define PRINT_EVERY_N_SAMPLES   10     /* 100 Hz / 10 = 10 Hz readout */
 
 typedef struct {
@@ -104,6 +110,7 @@ void imu_detection_task(void *arg)
      * must fire at most once per grace window -- otherwise every trigger
      * sample during the 5 s grace period would re-notify Security Core. */
     bool tier2_sustained_reported = false;
+    uint32_t tier2_motion_run_samples = 0;
     uint32_t sample_num = 0;
 
     for (;;) {
@@ -115,6 +122,7 @@ void imu_detection_task(void *arg)
 
         if (entering_tier2) {
             tier2_sustained_reported = false;
+            tier2_motion_run_samples = 0;
         }
 
         if (state == SECURITY_DISARMED) {
@@ -188,12 +196,21 @@ void imu_detection_task(void *arg)
             break;
 
         case SECURITY_ARMED_TIER2:
-            /* Same detection/thresholds as QUIET; only whether motion
-             * persisted through the grace window is new information, and
-             * only the first observation of it matters to Security Core. */
-            if (motion_trig && !tier2_sustained_reported) {
-                send_imu_command(IMU_TIER2_MOVEMENT_SUSTAINED);
-                tier2_sustained_reported = true;
+            /* Same detection/thresholds as QUIET, but motion must hold for
+             * TIER2_SUSTAIN_CONFIRM_SAMPLES straight before it's reported --
+             * letting go at any point resets the run, so a single bump
+             * followed by stillness rides out the grace timer instead of
+             * escalating. Only the first confirmed run matters to Security
+             * Core (tier2_movement_sustained is a one-shot flag). */
+            if (!tier2_sustained_reported) {
+                if (motion_trig) {
+                    if (++tier2_motion_run_samples >= TIER2_SUSTAIN_CONFIRM_SAMPLES) {
+                        send_imu_command(IMU_TIER2_MOVEMENT_SUSTAINED);
+                        tier2_sustained_reported = true;
+                    }
+                } else {
+                    tier2_motion_run_samples = 0;
+                }
             }
             break;
 

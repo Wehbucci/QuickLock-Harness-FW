@@ -25,6 +25,11 @@
 
 QL_LOG_TAG("ql_console");
 
+/* Bench-only fake arm/disarm + status commands, defined in
+ * ql_console_bench_hooks.c so that file can be left out of a commit without
+ * touching this one beyond this declaration and the registration call below. */
+extern esp_err_t ql_console_register_bench_hooks(void);
+
 /* -------------------------------------------------------------------------- */
 /* Commands                                                                    */
 /* -------------------------------------------------------------------------- */
@@ -161,6 +166,11 @@ esp_err_t ql_console_start(void)
                     esp_err_to_name(err));
             return err;
         }
+    }
+
+    err = ql_console_register_bench_hooks();
+    if (err != ESP_OK) {
+        return err;
     }
 
     err = esp_console_start_repl(repl);

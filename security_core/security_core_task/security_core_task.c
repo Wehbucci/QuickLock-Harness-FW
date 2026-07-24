@@ -12,6 +12,8 @@
 #include "ql_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "imu_hal.h"
+#include "common_config.h"
 #include <stdint.h>
 
 QL_LOG_TAG("security_core");
@@ -107,9 +109,31 @@ static void security_tier3(void)
     }
 }
 
-static void arm_test(void)
+/* Pre-arm health check. Returns true if arming should proceed.
+ *
+ * DEBUG_MODE (common/include/debug_config.h) controls what a failed check
+ * does: in debug mode it's logged only and arming proceeds anyway (useful on
+ * the bench with a known-flaky/disconnected sensor); in production mode a
+ * failure blocks the arm request outright (fail-secure). */
+static bool arm_test(void)
 {
-    // TODO
+    bool imu_ok = imu_hal_self_test();
+    // TODO: check other subsystems (belt detection, battery, BLE link)
+    bool all_ok = imu_ok;
+
+    if (!all_ok) {
+#if DEBUG_MODE
+        QL_LOGW("IMU self-test failed; arming anyway (DEBUG_MODE=1, degraded motion detection)");
+#else
+        QL_LOGE("IMU self-test failed; refusing to arm (DEBUG_MODE=0)");
+#endif
+    }
+
+#if DEBUG_MODE
+    return true;
+#else
+    return all_ok;
+#endif
 }
 
 void security_core_task(void *arg)
@@ -168,14 +192,20 @@ void security_core_task(void *arg)
             } else if (security_state == SECURITY_DISARMED) {
                 switch (ble_command) {
                     case BLE_ARM:
-                        arm_test();
-                        security_armed_quiet();
+                        if (arm_test()) {
+                            security_armed_quiet();
+                        } else {
+                            QL_LOGE("arm refused: pre-arm health check failed");
+                        }
                         break;
                     case BLE_DISARM:
                         break;
                     case BLE_OOR:
-                        arm_test();
-                        security_armed_quiet();
+                        if (arm_test()) {
+                            security_armed_quiet();
+                        } else {
+                            QL_LOGE("arm refused (OOR): pre-arm health check failed");
+                        }
                         break;
                     default:
                         QL_LOGW("unknown ble_command %d while disarmed", (int)ble_command);

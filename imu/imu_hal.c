@@ -206,3 +206,32 @@ esp_err_t imu_hal_read(imu_data_t *out)
 
     return ESP_OK;
 }
+
+bool imu_hal_self_test(void)
+{
+    uint8_t who_am_i = 0;
+    uint8_t reg = REG_WHO_AM_I;
+    esp_err_t err = i2c_master_transmit_receive(s_dev_handle, &reg, 1, &who_am_i, 1, 1000);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "self-test: MPU6050 not responding on I2C: %s", esp_err_to_name(err));
+        return false;
+    }
+    if (who_am_i != MPU6050_I2C_ADDR) {
+        ESP_LOGW(TAG, "self-test: unexpected WHO_AM_I=0x%02X (expected 0x%02X); continuing anyway",
+                 who_am_i, MPU6050_I2C_ADDR);
+    }
+
+    /* WHO_AM_I alone isn't enough: it answers even while the chip is asleep
+     * with its data-ready interrupt disabled, which is exactly its power-on
+     * state -- so a sensor that lost power (unplugged, not just an I2C
+     * hiccup) and came back would pass the check above yet never produce a
+     * sample again, since init_mpu6050_registers() otherwise only runs once
+     * at boot. Re-applying it here is idempotent on a chip that never lost
+     * power, and re-wakes/reconfigures one that did. */
+    err = init_mpu6050_registers();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "self-test: MPU6050 re-configure failed: %s", esp_err_to_name(err));
+        return false;
+    }
+    return true;
+}
